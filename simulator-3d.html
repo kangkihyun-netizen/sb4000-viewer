@@ -430,30 +430,33 @@ class LinearPath {
 
 // ===== HARDCODED positions based on Blender scene + glTF yup conversion =====
 // Blender: IMUX z=-0.30, OMUX z=+0.50, imux_ch_y = omux_ch_y = [-0.72,-0.24,0.24,0.72]
+// slot_y (TWTA-i): [-0.9,-0.54,-0.18,0.18,0.54,0.90]  TWTA center x=1.21 (helix mid), z=0.095
 // glTF yup: (x, y_bl, z_bl) → (x, z_bl, -y_bl)
-// So IMUX ch-i glTF: (1.05, -0.22, -ch_y[i-1])
-//    OMUX ch-i glTF: (1.05, +0.42, -ch_y[i-1])
-const CH_Y = [-0.72, -0.24, 0.24, 0.72];   // Blender Y of each channel on bank
-const IMUX_Z_GL = -0.22;   // glTF Y (vertical) at IMUX top
-const OMUX_Z_GL =  0.42;   // glTF Y (vertical) at OMUX bottom
-const BANK_X = 1.05;
+const CH_Y   = [-0.72, -0.24, 0.24, 0.72];                  // IMUX/OMUX channel y (Blender)
+const SLOT_Y = [-0.90, -0.54, -0.18, 0.18, 0.54, 0.90];     // TWTA slot y (Blender)
+const IMUX_Z_GL = -0.22;   // glTF Y at IMUX face
+const OMUX_Z_GL =  0.42;   // glTF Y at OMUX face
+const TWTA_Z_GL =  0.095;  // glTF Y at TWTA helix axis
+const BANK_X    = 1.05;
+const TWTA_X    = 1.21;
 
-function imuxPortPos(ch){
-  // ch 1..4 → one of 4 channels along bank
-  return new THREE.Vector3(BANK_X, IMUX_Z_GL, -CH_Y[ch-1]);
-}
-function omuxPortPos(ch){
-  return new THREE.Vector3(BANK_X, OMUX_Z_GL, -CH_Y[ch-1]);
+function imuxPortPos(ch){ return new THREE.Vector3(BANK_X, IMUX_Z_GL, -CH_Y[ch-1]); }
+function omuxPortPos(ch){ return new THREE.Vector3(BANK_X, OMUX_Z_GL, -CH_Y[ch-1]); }
+function twtaHelixPos(slotIdx){
+  // slotIdx 1..6 — TWTA that processes this channel
+  return new THREE.Vector3(TWTA_X, TWTA_Z_GL, -SLOT_Y[slotIdx-1]);
 }
 
 function buildChannelPath(ch, route){
-  // Straight line from IMUX port to OMUX port.
-  // For failover (ch==4 rerouted), the physical ports are the SAME (IMUX ch-4 and OMUX ch-4)
-  // so the arrow path doesn't change — only the color does.
+  // IMUX port → TWTA body (helix) → OMUX port (3 waypoints)
+  // - Nominal: ch goes through TWTA[ch]
+  // - Failover (ch==4): ch-4 re-routed through TWTA-5
+  const twtaIdx = (route==='failover' && ch===4) ? 5 : ch;
   const a = imuxPortPos(ch);
+  const mid = twtaHelixPos(twtaIdx);
   const b = omuxPortPos(ch);
-  console.log(`ch${ch} ${route}: IMUX (${a.x.toFixed(2)},${a.y.toFixed(2)},${a.z.toFixed(2)}) → OMUX (${b.x.toFixed(2)},${b.y.toFixed(2)},${b.z.toFixed(2)}) len=${a.distanceTo(b).toFixed(2)}`);
-  return new LinearPath([a, b]);
+  console.log(`ch${ch} ${route}: IMUX (${a.x.toFixed(2)},${a.y.toFixed(2)},${a.z.toFixed(2)}) → TWTA${twtaIdx} (${mid.x.toFixed(2)},${mid.y.toFixed(2)},${mid.z.toFixed(2)}) → OMUX (${b.x.toFixed(2)},${b.y.toFixed(2)},${b.z.toFixed(2)})`);
+  return new LinearPath([a, mid, b]);
 }
 
 // Shared arrow geometry — slim arrow pointing along +Z (local)
@@ -476,10 +479,12 @@ function createPathLine(path, color){
   return tube;
 }
 
-// Debug endpoints — small bright spheres at IMUX and OMUX ports
+// Path endpoint + TWTA midpoint markers
+// Purple = IMUX port (input), gold = OMUX port (output), cyan ring = TWTA junction
 function createEndpointMarkers(path, color){
   const group = new THREE.Group();
   const sphGeom = new THREE.SphereGeometry(0.018, 12, 12);
+  // Start (IMUX) and end (OMUX)
   [path.points[0], path.points[path.points.length-1]].forEach((p, i)=>{
     const mat = new THREE.MeshBasicMaterial({
       color: i===0 ? 0xc59bff : 0xffb23a,   // purple=IMUX, gold=OMUX
@@ -491,10 +496,23 @@ function createEndpointMarkers(path, color){
     s.renderOrder = 1;
     group.add(s);
   });
+  // Midpoints (TWTA junctions) — smaller cyan markers
+  if(path.points.length > 2){
+    const midGeom = new THREE.SphereGeometry(0.014, 10, 10);
+    for(let i=1; i<path.points.length-1; i++){
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0x3de0ff, transparent:true, opacity:0.7, depthTest:false
+      });
+      const s = new THREE.Mesh(midGeom, mat);
+      s.position.copy(path.points[i]);
+      s.renderOrder = 1;
+      group.add(s);
+    }
+  }
   return group;
 }
 
-function createFlowParticles(ch, color, path, count=4){
+function createFlowParticles(ch, color, path, count=6){
   const group = new THREE.Group();
   const particles = [];
   for(let i=0;i<count;i++){
