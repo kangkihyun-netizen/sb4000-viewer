@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<title>SB4000 Payload Bay — Interactive 3D Viewer</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<script type="module" src="https://unpkg.com/@google/model-viewer@3.5.0/dist/model-viewer.min.js"></script>
+<style>
+  html,body{margin:0;height:100%;background:#070c18;color:#e6ecff;
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Noto Sans KR",sans-serif}
+  header{padding:14px 20px;border-bottom:1px solid #1d2b4d;display:flex;
+    justify-content:space-between;align-items:baseline;gap:14px;flex-wrap:wrap}
+  h1{margin:0;font-size:18px;font-weight:700;letter-spacing:-.01em}
+  small{color:#97a4c7}
+  model-viewer{width:100%;height:calc(100vh - 150px);background:
+    radial-gradient(ellipse at center,#11182b 0%,#060a15 70%)}
+  .hint{padding:8px 20px 14px;color:#97a4c7;font-size:12.5px;line-height:1.5}
+  kbd{background:#1a2340;border:1px solid #2a3a63;padding:1px 6px;border-radius:4px;
+    color:#cfd8f7;font-size:11px}
+  .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;
+    font-weight:600;margin-right:6px;border:1px solid #2a3a63;color:#cfe0ff;background:#14203b}
+  .tag.g{background:#0f3a20;border-color:#2f6b48;color:#b8f1c8}
+  .tag.r{background:#3a1010;border-color:#7a1e1e;color:#ffa0a0}
+  .tag.y{background:#3a2410;border-color:#7a4a1e;color:#ffd3a0}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>🛰️ Thales SB4000 — Payload Bay & TWTA Redundancy Ring</h1>
+    <small>Interactive 3D — 마우스로 회전 · 휠로 확대</small>
+  </div>
+  <div>
+    <span class="tag g">TWTA Active</span>
+    <span class="tag r">TWTA Failed (M4)</span>
+    <span class="tag y">TWTA Standby (M6)</span>
+  </div>
+</header>
+
+<model-viewer
+  src="model.glb"
+  alt="SB4000 satellite with TWTA payload bay"
+  camera-controls
+  touch-action="pan-y"
+  auto-rotate
+  auto-rotate-delay="3000"
+  rotation-per-second="15deg"
+  exposure="1.0"
+  shadow-intensity="0.6"
+  environment-image="neutral"
+  camera-orbit="55deg 72deg 9m"
+  field-of-view="35deg"
+  min-camera-orbit="auto auto 3m"
+  max-camera-orbit="auto auto 25m">
+</model-viewer>
+
+<div class="hint">
+  🖱️ <b>드래그</b> = 회전 · <b>휠</b> = 확대/축소 · <b>Shift+드래그</b> = 팬 ·
+  <kbd>R</kbd>을 눌러 자동 회전 토글 · 화면 오른쪽 아래 <kbd>⤢</kbd> 클릭으로 전체화면 ·
+  북쪽 패널이 반투명 처리되어 있어 내부 TWTA 6채널 + IMUX + OMUX + R-switch + 도파관 배선 (빨간색 = failover 경로)이 보입니다.
+</div>
+</body>
+</html>
