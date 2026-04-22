@@ -356,11 +356,16 @@ loader.load('twta_bay.glb',
     // Start with nominal (all 4 channels active)
     for(let ch=1; ch<=4; ch++) setChannelFlow(ch, 'active');
 
-    // Frame camera on payload bay
-    // Bay center approx (1.0, 0.1, 0.15) — already set in controls.target
+    // Debug: count initialized flows
+    const flowCount = Object.keys(FLOW.curves).length;
+    const totalParticles = Object.values(FLOW.curves).reduce((s, c) =>
+      s + (c.nominal ? c.nominal.particles.length : 0) +
+          (c.failover ? c.failover.particles.length : 0), 0);
+    console.log('Flows initialized:', flowCount, 'channels, total arrows:', totalParticles);
+
     document.getElementById('loadOverlay').style.display = 'none';
     document.getElementById('vizHint').textContent =
-      `✅ 로드 완료 · TWTA ${Object.keys(REG.twta).length}기, 도파관 ${Object.keys(REG.wg_nominal).length+REG.wg_failover_in.length+REG.wg_failover_out.length}개 · RF 흐름 오버레이 ON`;
+      `✅ 로드 완료 · TWTA ${Object.keys(REG.twta).length}기, 도파관 ${Object.keys(REG.wg_nominal).length+REG.wg_failover_in.length+REG.wg_failover_out.length}개 · 🏹 ${flowCount}채널 ${totalParticles}화살표 흐름 중`;
   },
   (xhr) => {
     if(xhr.lengthComputable){
@@ -424,69 +429,76 @@ class LinearPath {
 }
 
 function buildChannelPath(ch, route){
-  // route = 'nominal' | 'failover' (ch must be 4 for failover)
+  // route = 'nominal' | 'failover' (for ch==4)
   const via = route==='failover' ? 5 : ch;
   const twta = REG.twta[via];
-  if(!twta || !twta.helix) return null;
+  if(!twta || !twta.helix){ console.warn('No TWTA helix for ch', ch, route); return null; }
 
-  const imuxCenter = wp(REG.imux_bank);
-  const omuxCenter = wp(REG.omux_bank);
+  // Anchor positions: use TWTA helix center as the "through" point
+  const helixPos = wp(twta.helix[0]);
 
-  // IMUX/OMUX port approximate positions (the WG endpoints that anchor the flow)
-  let imuxPort, omuxPort;
+  // For IMUX/OMUX ports, use WG segment centers (mid of first/last WG segment).
+  // If channel 4 failover, use IMUX ch-4 port and OMUX ch-4 port (same physical ports).
   const firstWg = REG.wg_nominal[`WG_IMUX${ch}_Sin${ch}_1`];
   const lastWg  = REG.wg_nominal[`WG_R${ch}_OMUX${ch}_2`];
-  imuxPort = firstWg ? wp(firstWg) : imuxCenter.clone();
-  omuxPort = lastWg  ? wp(lastWg)  : omuxCenter.clone();
+  const imuxCenter = REG.imux_bank ? wp(REG.imux_bank) : new THREE.Vector3();
+  const omuxCenter = REG.omux_bank ? wp(REG.omux_bank) : new THREE.Vector3();
 
-  // Single straight line IMUX → via (TWTA) → OMUX
-  // Only 3 waypoints so flow is monotonic in the primary (up) axis.
-  // TWTA helix is kept as a midpoint to suggest passage through the amplifier.
-  const via_pos = wp(twta.helix[0]);
+  const imuxPort = firstWg ? wp(firstWg) : imuxCenter.clone();
+  const omuxPort = lastWg  ? wp(lastWg)  : omuxCenter.clone();
 
-  // To keep flow direction monotonic, project TWTA midpoint onto the line IMUX→OMUX.
-  // This prevents Z-axis reversal that made arrows look bidirectional.
-  const line = new THREE.Vector3().subVectors(omuxPort, imuxPort);
-  const v = new THREE.Vector3().subVectors(via_pos, imuxPort);
-  const tProj = Math.max(0.15, Math.min(0.85, v.dot(line) / line.dot(line)));
-  const projected = imuxPort.clone().add(line.clone().multiplyScalar(tProj));
-  // Blend: 80% projected (keeps monotonicity), 20% toward TWTA (hints at amp)
-  const mid = projected.lerp(via_pos, 0.20);
+  // Bias endpoints slightly outward from the bank center so arrows start "above"
+  // the IMUX bar and end "above" the OMUX bar, making the flow obvious.
+  const upAxis = new THREE.Vector3(0, 1, 0);
+  const imuxToHelix = new THREE.Vector3().subVectors(helixPos, imuxCenter).normalize();
+  const omuxToHelix = new THREE.Vector3().subVectors(helixPos, omuxCenter).normalize();
 
-  return new LinearPath([imuxPort.clone(), mid, omuxPort.clone()]);
+  // Straight path: just IMUX port → OMUX port (2 waypoints, strictly monotonic)
+  const a = imuxPort.clone();
+  const b = omuxPort.clone();
+
+  console.log(`ch${ch} ${route}: IMUX`, a.toArray().map(v=>v.toFixed(2)),
+              '→ OMUX', b.toArray().map(v=>v.toFixed(2)),
+              'len=', a.distanceTo(b).toFixed(2));
+
+  return new LinearPath([a, b]);
 }
 
-// Shared arrow geometry — elongated cone pointing along +Z (local)
-// Longer and thinner so the direction is unambiguous from any angle.
-const ARROW_GEOM = new THREE.ConeGeometry(0.025, 0.12, 12);
-ARROW_GEOM.rotateX(Math.PI/2);   // apex now along +Z (flow direction)
-ARROW_GEOM.translate(0, 0, 0.04); // shift so arrow sits centered on path point
+// Shared arrow geometry — BIG elongated cone pointing along +Z (local)
+const ARROW_GEOM = new THREE.ConeGeometry(0.045, 0.18, 14);
+ARROW_GEOM.rotateX(Math.PI/2);    // apex now along +Z (flow direction)
+ARROW_GEOM.translate(0, 0, 0.06); // bias so arrow sits centered on path point
 
-// Static line showing the full path (thin glowing stripe)
+// Static line showing the full path (bright glowing guide)
 function createPathLine(path, color){
   const pts = path.points.map(p => p.clone());
   const geom = new THREE.BufferGeometry().setFromPoints(pts);
   const mat = new THREE.LineBasicMaterial({
     color: color,
-    transparent: true, opacity: 0.35
+    transparent: true, opacity: 0.7,
+    depthTest: false   // always render on top so it's visible through objects
   });
-  return new THREE.Line(geom, mat);
+  const line = new THREE.Line(geom, mat);
+  line.renderOrder = 1;
+  return line;
 }
 
-function createFlowParticles(ch, color, path, count=5){
+function createFlowParticles(ch, color, path, count=6){
   const group = new THREE.Group();
   const particles = [];
   for(let i=0;i<count;i++){
-    const mat = new THREE.MeshStandardMaterial({
-      color: color, emissive: color, emissiveIntensity: 5.0,
-      transparent: true, opacity: 0.95
+    // Use BasicMaterial (unlit) so arrows glow full-brightly regardless of scene lighting
+    const mat = new THREE.MeshBasicMaterial({
+      color: color,
+      transparent: true, opacity: 1.0,
+      depthTest: false  // render on top
     });
     const s = new THREE.Mesh(ARROW_GEOM, mat);
     s.userData.t = i/count;
+    s.renderOrder = 2;
     group.add(s);
     particles.push(s);
   }
-  // Add the static path line underneath
   const line = createPathLine(path, color);
   group.add(line);
   FLOW.group.add(group);
@@ -552,8 +564,9 @@ function setFlowColor(ch, route, colorHex){
   const c = FLOW.curves[ch];
   if(!c || !c[route]) return;
   c[route].particles.forEach(p => {
-    p.material.color.setHex(colorHex);
-    p.material.emissive.setHex(colorHex);
+    // MeshBasicMaterial has no emissive, just color
+    if(p.material.color) p.material.color.setHex(colorHex);
+    if(p.material.emissive) p.material.emissive.setHex(colorHex);
   });
   if(c[route].line){
     c[route].line.material.color.setHex(colorHex);
