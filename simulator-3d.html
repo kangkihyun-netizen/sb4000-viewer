@@ -456,18 +456,19 @@ function buildChannelPath(ch, route){
   return new LinearPath([a, b]);
 }
 
-// Shared arrow geometry — BIG elongated cone pointing along +Z (local)
-const ARROW_GEOM = new THREE.ConeGeometry(0.045, 0.18, 14);
+// Shared arrow geometry — slim arrow pointing along +Z (local)
+// Thin enough that movement is visible; count × size fits comfortably in 64cm path
+const ARROW_GEOM = new THREE.ConeGeometry(0.022, 0.07, 10);
 ARROW_GEOM.rotateX(Math.PI/2);    // apex now along +Z (flow direction)
-ARROW_GEOM.translate(0, 0, 0.06); // bias so arrow sits centered on path point
+ARROW_GEOM.translate(0, 0, 0.025);
 
 // Static glowing tube showing the full path (thick, always visible)
 function createPathLine(path, color){
   const curve = new THREE.CatmullRomCurve3(path.points.map(p=>p.clone()), false, 'centripetal', 0);
-  const geom = new THREE.TubeGeometry(curve, 24, 0.012, 8, false);
+  const geom = new THREE.TubeGeometry(curve, 24, 0.005, 8, false);
   const mat = new THREE.MeshBasicMaterial({
     color: color,
-    transparent: true, opacity: 0.5,
+    transparent: true, opacity: 0.35,
     depthTest: false
   });
   const tube = new THREE.Mesh(geom, mat);
@@ -478,7 +479,7 @@ function createPathLine(path, color){
 // Debug endpoints — small bright spheres at IMUX and OMUX ports
 function createEndpointMarkers(path, color){
   const group = new THREE.Group();
-  const sphGeom = new THREE.SphereGeometry(0.035, 12, 12);
+  const sphGeom = new THREE.SphereGeometry(0.018, 12, 12);
   [path.points[0], path.points[path.points.length-1]].forEach((p, i)=>{
     const mat = new THREE.MeshBasicMaterial({
       color: i===0 ? 0xc59bff : 0xffb23a,   // purple=IMUX, gold=OMUX
@@ -493,7 +494,7 @@ function createEndpointMarkers(path, color){
   return group;
 }
 
-function createFlowParticles(ch, color, path, count=6){
+function createFlowParticles(ch, color, path, count=4){
   const group = new THREE.Group();
   const particles = [];
   for(let i=0;i<count;i++){
@@ -638,17 +639,15 @@ function updateFlows(dt){
     const branch = c[c.route];
     if(!branch) return;
     const path = branch.path;
-    const speed = 0.22;
+    const speed = 0.45;   // ~2.2s per full traversal — clearly visible motion
     branch.particles.forEach(p=>{
       p.userData.t = (p.userData.t + dt * speed) % 1;
       path.getPointTangent(p.userData.t, _tmpPos, _tmpDir);
       p.position.copy(_tmpPos);
-      // Orient arrow: local +Z axis → flow direction
       p.quaternion.setFromUnitVectors(_tmpUp, _tmpDir);
-      // Fade at ends
       const t = p.userData.t;
-      const fade = t < 0.04 ? t/0.04 : t > 0.96 ? (1-t)/0.04 : 1;
-      p.material.opacity = 0.95 * fade;
+      const fade = t < 0.08 ? t/0.08 : t > 0.92 ? (1-t)/0.08 : 1;
+      p.material.opacity = 0.9 * fade;
     });
   });
 }
