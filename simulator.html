@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<title>TWTA 절체 훈련 시뮬레이터 — 운용자 교육용</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>
+:root{
+  --bg:#050914; --panel:#0b1530; --panel2:#0f1a38; --ink:#e6ecff; --sub:#97a4c7;
+  --gold:#ffb23a; --coral:#ff6f8a; --green:#4ddb88; --red:#ff4d5e; --cyan:#3de0ff;
+  --line:#1e2e55; --mono:"SF Mono","Menlo","Consolas",monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(180deg,#040812,#0a1426 40%);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Noto Sans KR",sans-serif;
+  overflow-x:hidden}
+header{padding:14px 24px;border-bottom:1px solid var(--line);background:#060b18;
+  display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+header h1{margin:0;font-size:18px;font-weight:700;letter-spacing:-.01em}
+header small{color:var(--sub)}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;
+  background:#0f3a20;color:#b8f1c8;border:1px solid #2f6b48}
+
+.top{display:flex;gap:20px;padding:14px 24px;align-items:center;flex-wrap:wrap;
+  background:#080e1c;border-bottom:1px solid var(--line)}
+.clock{font-family:var(--mono);font-size:24px;font-weight:700;color:var(--gold);
+  background:#14203d;padding:8px 18px;border-radius:8px;border:1px solid var(--gold);
+  min-width:140px;text-align:center}
+.phase{font-size:14px;font-weight:600;padding:6px 12px;border-radius:6px;
+  background:var(--panel);border:1px solid var(--line)}
+.phase.alert{background:#3a1010;border-color:#7a1e1e;color:#ffa0a0;
+  animation:pulse-alert 1s infinite}
+.phase.warn{background:#3a2410;border-color:#7a4a1e;color:#ffd3a0}
+.phase.ok{background:#0f3a20;border-color:#2f6b48;color:#b8f1c8}
+@keyframes pulse-alert{0%,100%{opacity:1}50%{opacity:.5}}
+
+.controls{display:flex;gap:6px;margin-left:auto}
+.controls button{padding:8px 14px;background:var(--panel);border:1px solid var(--line);
+  color:var(--ink);border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;
+  transition:all .15s}
+.controls button:hover{border-color:var(--gold)}
+.controls button.primary{background:linear-gradient(180deg,#ffb23a,#e08a10);color:#1a0e02;border:none}
+.controls select{padding:8px 10px;background:var(--panel);border:1px solid var(--line);
+  color:var(--ink);border-radius:6px;font-size:13px}
+
+main{display:grid;grid-template-columns:260px 1fr 320px;gap:16px;padding:16px 24px}
+@media (max-width:1200px){main{grid-template-columns:1fr}}
+
+.procbox{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.procbox h3{margin:0;padding:12px 16px;font-size:13px;color:var(--sub);font-weight:600;
+  letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid var(--line)}
+.step{padding:10px 14px;border-bottom:1px solid var(--line);font-size:12.5px;cursor:pointer;
+  transition:all .15s;position:relative}
+.step:hover{background:var(--panel2)}
+.step.done{color:var(--sub)}
+.step.done::before{content:"✓ ";color:var(--green);font-weight:700}
+.step.active{background:linear-gradient(90deg,#2a1e08,#14203d);border-left:3px solid var(--gold);
+  color:var(--gold);font-weight:600}
+.step.active::before{content:"▶ ";color:var(--gold);font-weight:700;animation:blink 1s infinite}
+.step.future{opacity:.45}
+.step .time{font-family:var(--mono);font-size:10px;color:var(--sub);display:block;margin-bottom:2px}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+.viz{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:0;
+  position:relative;min-height:560px;overflow:hidden}
+.viz svg{width:100%;height:100%;display:block}
+
+.log{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  display:flex;flex-direction:column;max-height:640px}
+.log-tabs{display:flex;border-bottom:1px solid var(--line)}
+.log-tabs button{flex:1;padding:10px;background:transparent;border:none;color:var(--sub);
+  cursor:pointer;font-size:12px;font-weight:600;border-bottom:2px solid transparent}
+.log-tabs button.active{color:var(--gold);border-bottom-color:var(--gold)}
+.log-body{flex:1;overflow-y:auto;padding:8px 0;font-family:var(--mono);font-size:11.5px;line-height:1.5}
+.log-line{padding:4px 14px;border-left:3px solid transparent;word-break:break-word}
+.log-line.cmd{border-left-color:var(--coral);color:#ffc7d4}
+.log-line.tm{border-left-color:var(--green);color:#c7f0d8}
+.log-line.alarm{border-left-color:var(--red);background:#1f0a0a;color:#ffb3b3;font-weight:700}
+.log-line.note{color:var(--sub);font-style:italic}
+.log-line .ts{color:#5f6d94;margin-right:6px}
+
+/* SVG styling */
+.wg{fill:none;stroke-width:4}
+.wg.cold{stroke:#5e6a82}
+.wg.hot{stroke:#ffb23a;stroke-dasharray:12 8;animation:flow 1s linear infinite;filter:drop-shadow(0 0 4px #ffb23a)}
+.wg.fail{stroke:#ff4d5e;filter:drop-shadow(0 0 8px #ff4d5e);animation:pulse-wg 0.4s infinite}
+.wg.dead{stroke:#2a2d3a;stroke-dasharray:4 4}
+.wg.new{stroke:#3de0ff;stroke-dasharray:12 8;animation:flow 0.7s linear infinite;
+  filter:drop-shadow(0 0 10px #3de0ff)}
+.wg.restored{stroke:#4ddb88;stroke-dasharray:12 8;animation:flow 0.9s linear infinite;
+  filter:drop-shadow(0 0 6px #4ddb88)}
+@keyframes flow{to{stroke-dashoffset:-20}}
+@keyframes pulse-wg{0%,100%{opacity:1}50%{opacity:.4}}
+
+.twta-box{fill:#1a2340;stroke:#5a6684;stroke-width:2;rx:6}
+.twta-box.active{fill:#0f3a20;stroke:#4ddb88;filter:drop-shadow(0 0 10px #4ddb88)}
+.twta-box.warmup{fill:#3a2410;stroke:#ffb23a;filter:drop-shadow(0 0 12px #ffb23a);
+  animation:pulse-box 1s infinite}
+.twta-box.fail{fill:#3a1010;stroke:#ff4d5e;filter:drop-shadow(0 0 16px #ff4d5e);
+  animation:fail-shake 0.2s infinite}
+.twta-box.off{fill:#0d1220;stroke:#3a4156}
+.twta-box.standby{fill:#1a1408;stroke:#8a7a3e}
+@keyframes pulse-box{0%,100%{opacity:1}50%{opacity:.7}}
+@keyframes fail-shake{0%,100%{transform:translateX(0)}25%{transform:translateX(1px)}75%{transform:translateX(-1px)}}
+
+.led{stroke:none}
+.led.green{fill:#4ddb88;filter:drop-shadow(0 0 6px #4ddb88)}
+.led.red{fill:#ff4d5e;filter:drop-shadow(0 0 10px #ff4d5e);animation:blink-led 0.3s infinite}
+.led.amber{fill:#ffb23a;filter:drop-shadow(0 0 6px #ffb23a)}
+.led.amber.pulse{animation:pulse-amber 0.8s infinite}
+.led.off{fill:#2a2f3e}
+.led.cyan{fill:#3de0ff;filter:drop-shadow(0 0 8px #3de0ff)}
+@keyframes blink-led{0%,100%{opacity:1}50%{opacity:.2}}
+@keyframes pulse-amber{0%,100%{opacity:1}50%{opacity:.5}}
+
+.rsw{fill:#2a3458;stroke:#89a6e0;stroke-width:1.5}
+.rsw-rotor{fill:#ffb23a;transition:transform 1s ease-in-out;transform-origin:center}
+
+.txt{font:700 13px -apple-system,sans-serif;fill:#e6ecff;pointer-events:none}
+.txt.sm{font-size:10.5px;font-weight:600}
+.txt.mono{font-family:var(--mono);font-size:10.5px;fill:#9fb3e0}
+.txt.gold{fill:#ffb23a}
+.txt.cyan{fill:#3de0ff}
+.txt.red{fill:#ff4d5e}
+
+.hotspot{opacity:0;cursor:pointer}
+
+/* Info callout */
+.callout{position:absolute;background:rgba(15,26,56,.95);border:1px solid var(--gold);
+  border-radius:8px;padding:10px 14px;font-size:12px;pointer-events:none;
+  box-shadow:0 8px 24px rgba(0,0,0,.5);max-width:240px;display:none;z-index:10}
+.callout b{color:var(--gold)}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🛰️ TWTA 절체 훈련 시뮬레이터</h1>
+    <small>DSS 텍스트 TM을 비주얼로 — 운용 훈련생 초급 교육용</small>
+  </div>
+  <div>
+    <span class="badge">TRAINING MODE</span>
+    <span style="color:var(--sub);font-size:11px;margin-left:6px">※ 실제 위성 영향 없음</span>
+  </div>
+</header>
+
+<div class="top">
+  <div class="clock" id="clock">T+0:00.0</div>
+  <div class="phase" id="phase">🟢 정상 운용</div>
+  <div style="font-size:12px;color:var(--sub)">
+    📡 Koreasat-class Ku payload · 절체 시나리오: <b style="color:var(--ink)">TWTA-4 EPC trip → TWTA-5 spare 전환</b>
+  </div>
+  <div class="controls">
+    <button id="rewind">⏮</button>
+    <button id="play" class="primary">▶ 시작</button>
+    <button id="step">⏭ 스텝</button>
+    <select id="speed">
+      <option value="0.5">0.5×</option>
+      <option value="1" selected>1×</option>
+      <option value="2">2×</option>
+      <option value="4">4×</option>
+    </select>
+    <button id="reset">🔄 리셋</button>
+  </div>
+</div>
+
+<main>
+
+  <aside class="procbox">
+    <h3>복구 프로시저</h3>
+    <div id="stepList"></div>
+  </aside>
+
+  <section class="viz" id="viz">
+    <svg viewBox="0 0 800 600" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <marker id="arrowOrange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#ffb23a"/></marker>
+        <marker id="arrowCyan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#3de0ff"/></marker>
+        <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#ff4d5e"/></marker>
+        <filter id="glow"><feGaussianBlur stdDeviation="3"/></filter>
+      </defs>
+
+      <!-- Title banner inside viz -->
+      <rect x="0" y="0" width="800" height="36" fill="#0b1530" stroke="#1e2e55"/>
+      <text class="txt" x="16" y="23">📡 Payload Bay — North Radiator (Thales SB4000B standard)</text>
+      <text class="txt sm mono" x="650" y="23" fill="#9fb3e0">6× Thales TED Ku TWTA · 150W</text>
+
+      <!-- IMUX bank (top) -->
+      <rect x="60" y="58" width="680" height="40" fill="#2a2040" stroke="#c59bff" rx="6"/>
+      <text class="txt" x="70" y="83" fill="#e4d0ff">IMUX (4 ch)</text>
+      <g fill="#c59bff" font-size="10" font-family="monospace" text-anchor="middle">
+        <text x="180" y="83">Ch-1</text>
+        <text x="320" y="83">Ch-2</text>
+        <text x="460" y="83">Ch-3</text>
+        <text x="600" y="83">Ch-4</text>
+      </g>
+      <!-- IMUX output ports -->
+      <circle cx="180" cy="98" r="4" fill="#1a2340" stroke="#c59bff"/>
+      <circle cx="320" cy="98" r="4" fill="#1a2340" stroke="#c59bff"/>
+      <circle cx="460" cy="98" r="4" fill="#1a2340" stroke="#c59bff"/>
+      <circle cx="600" cy="98" r="4" fill="#1a2340" stroke="#c59bff"/>
+
+      <!-- Waveguides: IMUX -> RSW_IN (one per TWTA channel 1-4) -->
+      <path id="wg_imux1" class="wg cold" d="M 180,102 L 180,180 L 140,180 L 140,230"/>
+      <path id="wg_imux2" class="wg cold" d="M 320,102 L 320,180 L 260,180 L 260,230"/>
+      <path id="wg_imux3" class="wg cold" d="M 460,102 L 460,180 L 380,180 L 380,230"/>
+      <path id="wg_imux4" class="wg cold" d="M 600,102 L 600,180 L 500,180 L 500,230"/>
+
+      <!-- Failover input WG: IMUX Ch-4 -> RSW_IN_S5 (hidden until phase E) -->
+      <path id="wg_failover_in" class="wg" d="M 600,102 L 600,145 L 625,145 L 625,230 L 620,230"
+            style="display:none;stroke:#3de0ff;stroke-width:5" stroke-dasharray="12 8"/>
+
+      <!-- R-switches input row (y=240) -->
+      <g id="rsw_row_in">
+        <!-- S1 -->
+        <g transform="translate(140,250)"><circle class="rsw" r="14"/><rect class="rsw-rotor" id="rswROT_IN_S1" x="-10" y="-2" width="20" height="4" rx="1"/></g>
+        <text class="txt sm" x="140" y="282" text-anchor="middle">S1</text>
+        <g transform="translate(260,250)"><circle class="rsw" r="14"/><rect class="rsw-rotor" id="rswROT_IN_S2" x="-10" y="-2" width="20" height="4" rx="1"/></g>
+        <text class="txt sm" x="260" y="282" text-anchor="middle">S2</text>
+        <g transform="translate(380,250)"><circle class="rsw" r="14"/><rect class="rsw-rotor" id="rswROT_IN_S3" x="-10" y="-2" width="20" height="4" rx="1"/></g>
+        <text class="txt sm" x="380" y="282" text-anchor="middle">S3</text>
+        <g transform="translate(500,250)"><circle class="rsw" r="14"/><rect class="rsw-rotor" id="rswROT_IN_S4" x="-10" y="-2" width="20" height="4" rx="1"/></g>
+        <text class="txt sm" x="500" y="282" text-anchor="middle">S4</text>
+        <g transform="translate(620,250)"><circle class="rsw" r="14"/><rect class="rsw-rotor" id="rswROT_IN_S5" x="-10" y="-2" width="20" height="4" rx="1"/></g>
+        <text class="txt sm" x="620" y="282" text-anchor="middle">S5</text>
+        <g transform="translate(740,250)"><circle class="rsw" r="14"/><rect class="rsw-rotor" id="rswROT_IN_S6" x="-10" y="-2" width="20" height="4" rx="1"/></g>
+        <text class="txt sm" x="740" y="282" text-anchor="middle">S6</text>
+      </g>
+
+      <!-- Jumper RSW -> TWTA (s.XXX -> twta input port) -->
+      <path id="wg_sin1" class="wg hot" d="M 140,264 L 140,296"/>
+      <path id="wg_sin2" class="wg hot" d="M 260,264 L 260,296"/>
+      <path id="wg_sin3" class="wg hot" d="M 380,264 L 380,296"/>
+      <path id="wg_sin4" class="wg hot" d="M 500,264 L 500,296"/>
+      <path id="wg_sin5" class="wg cold" d="M 620,264 L 620,296"/>
+      <path id="wg_sin6" class="wg cold" d="M 740,264 L 740,296"/>
+
+      <!-- TWTA array (y=300 to y=420, with finned collector style) -->
+      <g id="twta_row">
+      <!-- TWTA template repeated 6 times -->
+      <g id="twta_1">
+        <rect class="twta-box active" x="110" y="296" width="60" height="130"/>
+        <text class="txt sm" x="140" y="312" text-anchor="middle" fill="#4ddb88">TWTA-1</text>
+        <!-- EPC section -->
+        <rect x="116" y="318" width="48" height="30" fill="#0d1a33" stroke="#3a4156" rx="2"/>
+        <text class="txt sm" x="140" y="336" text-anchor="middle" fill="#9fb3e0">EPC</text>
+        <!-- Status LED -->
+        <circle class="led green" id="led_1" cx="158" cy="332" r="3.5"/>
+        <!-- TWT tube -->
+        <rect x="118" y="356" width="44" height="12" fill="#8a7246" stroke="#d4a864" rx="2"/>
+        <!-- PPM rings marks -->
+        <line x1="124" y1="356" x2="124" y2="368" stroke="#d4a864"/>
+        <line x1="134" y1="356" x2="134" y2="368" stroke="#d4a864"/>
+        <line x1="144" y1="356" x2="144" y2="368" stroke="#d4a864"/>
+        <line x1="154" y1="356" x2="154" y2="368" stroke="#d4a864"/>
+        <!-- Collector (finned) -->
+        <path d="M 120,376 L 160,376 L 156,404 L 124,404 Z" fill="#5a2f12" stroke="#d4a864"/>
+        <line x1="122" y1="382" x2="158" y2="382" stroke="#8a4a24"/>
+        <line x1="123" y1="388" x2="157" y2="388" stroke="#8a4a24"/>
+        <line x1="124" y1="394" x2="156" y2="394" stroke="#8a4a24"/>
+        <!-- Label -->
+        <text class="txt mono" x="140" y="420" text-anchor="middle">Vk −7.5kV</text>
+      </g>
+      <g id="twta_2" transform="translate(120,0)">
+        <rect class="twta-box active" x="110" y="296" width="60" height="130"/>
+        <text class="txt sm" x="140" y="312" text-anchor="middle" fill="#4ddb88">TWTA-2</text>
+        <rect x="116" y="318" width="48" height="30" fill="#0d1a33" stroke="#3a4156" rx="2"/>
+        <text class="txt sm" x="140" y="336" text-anchor="middle" fill="#9fb3e0">EPC</text>
+        <circle class="led green" id="led_2" cx="158" cy="332" r="3.5"/>
+        <rect x="118" y="356" width="44" height="12" fill="#8a7246" stroke="#d4a864" rx="2"/>
+        <line x1="124" y1="356" x2="124" y2="368" stroke="#d4a864"/><line x1="134" y1="356" x2="134" y2="368" stroke="#d4a864"/><line x1="144" y1="356" x2="144" y2="368" stroke="#d4a864"/><line x1="154" y1="356" x2="154" y2="368" stroke="#d4a864"/>
+        <path d="M 120,376 L 160,376 L 156,404 L 124,404 Z" fill="#5a2f12" stroke="#d4a864"/>
+        <line x1="122" y1="382" x2="158" y2="382" stroke="#8a4a24"/><line x1="123" y1="388" x2="157" y2="388" stroke="#8a4a24"/><line x1="124" y1="394" x2="156" y2="394" stroke="#8a4a24"/>
+        <text class="txt mono" x="140" y="420" text-anchor="middle">Vk −7.5kV</text>
+      </g>
+      <g id="twta_3" transform="translate(240,0)">
+        <rect class="twta-box active" x="110" y="296" width="60" height="130"/>
+        <text class="txt sm" x="140" y="312" text-anchor="middle" fill="#4ddb88">TWTA-3</text>
+        <rect x="116" y="318" width="48" height="30" fill="#0d1a33" stroke="#3a4156" rx="2"/>
+        <text class="txt sm" x="140" y="336" text-anchor="middle" fill="#9fb3e0">EPC</text>
+        <circle class="led green" id="led_3" cx="158" cy="332" r="3.5"/>
+        <rect x="118" y="356" width="44" height="12" fill="#8a7246" stroke="#d4a864" rx="2"/>
+        <line x1="124" y1="356" x2="124" y2="368" stroke="#d4a864"/><line x1="134" y1="356" x2="134" y2="368" stroke="#d4a864"/><line x1="144" y1="356" x2="144" y2="368" stroke="#d4a864"/><line x1="154" y1="356" x2="154" y2="368" stroke="#d4a864"/>
+        <path d="M 120,376 L 160,376 L 156,404 L 124,404 Z" fill="#5a2f12" stroke="#d4a864"/>
+        <line x1="122" y1="382" x2="158" y2="382" stroke="#8a4a24"/><line x1="123" y1="388" x2="157" y2="388" stroke="#8a4a24"/><line x1="124" y1="394" x2="156" y2="394" stroke="#8a4a24"/>
+        <text class="txt mono" x="140" y="420" text-anchor="middle">Vk −7.5kV</text>
+      </g>
+      <g id="twta_4" transform="translate(360,0)">
+        <rect class="twta-box active" x="110" y="296" width="60" height="130" id="twta_4_box"/>
+        <text class="txt sm" x="140" y="312" text-anchor="middle" id="twta_4_name" fill="#4ddb88">TWTA-4</text>
+        <rect x="116" y="318" width="48" height="30" fill="#0d1a33" stroke="#3a4156" rx="2"/>
+        <text class="txt sm" x="140" y="336" text-anchor="middle" fill="#9fb3e0">EPC</text>
+        <circle class="led green" id="led_4" cx="158" cy="332" r="3.5"/>
+        <rect x="118" y="356" width="44" height="12" fill="#8a7246" stroke="#d4a864" rx="2"/>
+        <line x1="124" y1="356" x2="124" y2="368" stroke="#d4a864"/><line x1="134" y1="356" x2="134" y2="368" stroke="#d4a864"/><line x1="144" y1="356" x2="144" y2="368" stroke="#d4a864"/><line x1="154" y1="356" x2="154" y2="368" stroke="#d4a864"/>
+        <path d="M 120,376 L 160,376 L 156,404 L 124,404 Z" fill="#5a2f12" stroke="#d4a864"/>
+        <line x1="122" y1="382" x2="158" y2="382" stroke="#8a4a24"/><line x1="123" y1="388" x2="157" y2="388" stroke="#8a4a24"/><line x1="124" y1="394" x2="156" y2="394" stroke="#8a4a24"/>
+        <text class="txt mono" x="140" y="420" text-anchor="middle" id="twta_4_info">Vk −7.5kV</text>
+      </g>
+      <g id="twta_5" transform="translate(480,0)">
+        <rect class="twta-box standby" x="110" y="296" width="60" height="130" id="twta_5_box"/>
+        <text class="txt sm" x="140" y="312" text-anchor="middle" id="twta_5_name" fill="#ffb23a">TWTA-5</text>
+        <rect x="116" y="318" width="48" height="30" fill="#0d1a33" stroke="#3a4156" rx="2"/>
+        <text class="txt sm" x="140" y="336" text-anchor="middle" fill="#9fb3e0">EPC</text>
+        <circle class="led amber" id="led_5" cx="158" cy="332" r="3.5"/>
+        <rect x="118" y="356" width="44" height="12" fill="#4a3e2a" stroke="#8a7246" rx="2"/>
+        <line x1="124" y1="356" x2="124" y2="368" stroke="#8a7246"/><line x1="134" y1="356" x2="134" y2="368" stroke="#8a7246"/><line x1="144" y1="356" x2="144" y2="368" stroke="#8a7246"/><line x1="154" y1="356" x2="154" y2="368" stroke="#8a7246"/>
+        <path d="M 120,376 L 160,376 L 156,404 L 124,404 Z" fill="#2a1a0c" stroke="#8a7246"/>
+        <text class="txt mono" x="140" y="420" text-anchor="middle" id="twta_5_info">STANDBY</text>
+      </g>
+      <g id="twta_6" transform="translate(600,0)">
+        <rect class="twta-box standby" x="110" y="296" width="60" height="130"/>
+        <text class="txt sm" x="140" y="312" text-anchor="middle" fill="#ffb23a">TWTA-6</text>
+        <rect x="116" y="318" width="48" height="30" fill="#0d1a33" stroke="#3a4156" rx="2"/>
+        <text class="txt sm" x="140" y="336" text-anchor="middle" fill="#9fb3e0">EPC</text>
+        <circle class="led amber" id="led_6" cx="158" cy="332" r="3.5"/>
+        <rect x="118" y="356" width="44" height="12" fill="#4a3e2a" stroke="#8a7246" rx="2"/>
+        <line x1="124" y1="356" x2="124" y2="368" stroke="#8a7246"/><line x1="134" y1="356" x2="134" y2="368" stroke="#8a7246"/><line x1="144" y1="356" x2="144" y2="368" stroke="#8a7246"/><line x1="154" y1="356" x2="154" y2="368" stroke="#8a7246"/>
+        <path d="M 120,376 L 160,376 L 156,404 L 124,404 Z" fill="#2a1a0c" stroke="#8a7246"/>
+        <text class="txt mono" x="140" y="420" text-anchor="middle">SPARE</text>
+      </g>
+      </g>
+
+      <!-- TWTA output -> RSW_OUT -->
+      <path id="wg_tout1" class="wg hot" d="M 140,426 L 140,462"/>
+      <path id="wg_tout2" class="wg hot" d="M 260,426 L 260,462"/>
+      <path id="wg_tout3" class="wg hot" d="M 380,426 L 380,462"/>
+      <path id="wg_tout4" class="wg hot" d="M 500,426 L 500,462"/>
+      <path id="wg_tout5" class="wg cold" d="M 620,426 L 620,462"/>
+      <path id="wg_tout6" class="wg cold" d="M 740,426 L 740,462"/>
+
+      <!-- R-switches output row (y=472) -->
+      <g id="rsw_row_out">
+        <g transform="translate(140,476)"><circle class="rsw" r="14"/><rect class="rsw-rotor" id="rswROT_OUT_R1" x="-10" y="-2" width="20" height="4" rx="1"/></g>
+        <g transform="translate(260,476)"><circle class="rsw" r="14"/><rect class="rsw-rotor" id="rswROT_OUT_R2" x="-10" y="-2" width="20" height="4" rx="1"/></g>
+        <g transform="translate(380,476)"><circle class="rsw" r="14"/><rect class="rsw-rotor" id="rswROT_OUT_R3" x="-10" y="-2" width="20" height="4" rx="1"/></g>
+        <g transform="translate(500,476)"><circle class="rsw" r="14"/><rect class="rsw-rotor" id="rswROT_OUT_R4" x="-10" y="-2" width="20" height="4" rx="1"/></g>
+        <g transform="translate(620,476)"><circle class="rsw" r="14"/><rect class="rsw-rotor" id="rswROT_OUT_R5" x="-10" y="-2" width="20" height="4" rx="1"/></g>
+        <g transform="translate(740,476)"><circle class="rsw" r="14"/><rect class="rsw-rotor" id="rswROT_OUT_R6" x="-10" y="-2" width="20" height="4" rx="1"/></g>
+        <text class="txt sm" x="140" y="508" text-anchor="middle">R1</text>
+        <text class="txt sm" x="260" y="508" text-anchor="middle">R2</text>
+        <text class="txt sm" x="380" y="508" text-anchor="middle">R3</text>
+        <text class="txt sm" x="500" y="508" text-anchor="middle">R4</text>
+        <text class="txt sm" x="620" y="508" text-anchor="middle">R5</text>
+        <text class="txt sm" x="740" y="508" text-anchor="middle">R6</text>
+      </g>
+
+      <!-- RSW_OUT -> OMUX (nominal 1-4) -->
+      <path id="wg_romux1" class="wg hot" d="M 140,490 L 140,560 L 180,560"/>
+      <path id="wg_romux2" class="wg hot" d="M 260,490 L 260,560 L 320,560"/>
+      <path id="wg_romux3" class="wg hot" d="M 380,490 L 380,560 L 460,560"/>
+      <path id="wg_romux4" class="wg hot" d="M 500,490 L 500,560 L 600,560"/>
+
+      <!-- Failover output WG: RSW_OUT_R5 -> OMUX Ch-4 -->
+      <path id="wg_failover_out" class="wg" d="M 620,490 L 620,540 L 600,540 L 600,560"
+            style="display:none;stroke:#3de0ff;stroke-width:5" stroke-dasharray="12 8"/>
+
+      <!-- OMUX bank (bottom) -->
+      <rect x="60" y="560" width="680" height="30" fill="#2a3256" stroke="#ffb23a" rx="6"/>
+      <text class="txt" x="70" y="580" fill="#ffd98a">OMUX (4 ch) → Tx</text>
+      <g fill="#ffb23a" font-size="10" font-family="monospace" text-anchor="middle">
+        <text x="180" y="580">OM-1</text>
+        <text x="320" y="580">OM-2</text>
+        <text x="460" y="580">OM-3</text>
+        <text x="600" y="580">OM-4</text>
+      </g>
+    </svg>
+
+    <div class="callout" id="callout"></div>
+  </section>
+
+  <aside class="log">
+    <div class="log-tabs">
+      <button class="active" data-tab="all">전체</button>
+      <button data-tab="cmd">CMD</button>
+      <button data-tab="tm">TM</button>
+    </div>
+    <div class="log-body" id="logBody"></div>
+  </aside>
+</main>
+
+<div style="padding:16px 24px;color:var(--sub);font-size:12px">
+  <b style="color:var(--ink)">조작법:</b>
+  <span style="margin-right:14px">▶ 시작 — 자동 재생</span>
+  <span style="margin-right:14px">⏭ 스텝 — 한 단계씩</span>
+  <span style="margin-right:14px">🔄 리셋 — 처음으로</span>
+  <span style="margin-right:14px">Space — 재생/일시정지</span>
+  <span>←/→ — 이전/다음 단계</span>
+</div>
+
+<script>
+/* ============================================================
+ * TWTA 절체 훈련 시뮬레이터 — 시나리오 타임라인
+ * 총 42초 (스케일된 시간) · 각 이벤트가 t(초) 에 발생
+ * ============================================================ */
+const timeline = [
+  // ---- Phase A: Normal (0-4s) ----
+  {t:0.0, step:0, phase:"🟢 정상 운용", phaseClass:"", log:"note", msg:"시뮬레이션 시작 — 모든 중계기 정상 운용 중"},
+  {t:2.0, log:"tm", msg:"TM  TWTA01..04.STATUS = NOMINAL"},
+  {t:2.5, log:"tm", msg:"TM  TWTA01..04.Vk = −7.5 kV · Ihc = 1.00 Inom"},
+  {t:3.0, log:"tm", msg:"TM  TWTA05,06.STATUS = STANDBY"},
+
+  // ---- Phase B: Failure (4-8s) ----
+  {t:4.0, step:1, phase:"🚨 TWTA-4 FAIL", phaseClass:"alert",
+    action:"fail_twta4",
+    log:"alarm", msg:"🚨 AUTO ALARM · TWTA04.EPC.OVER_CURRENT_TRIP"},
+  {t:4.3, log:"tm", msg:"TM  TWTA04.Ihc = 2.34 Inom → OVER_LIMIT"},
+  {t:4.8, log:"tm", msg:"TM  TWTA04.STATUS = FAIL · Vk = 0V (EPC auto-shutdown)"},
+  {t:5.2, log:"tm", msg:"TM  OMUX04.RF_power = NO_CARRIER · Downlink Ch-4 상실"},
+  {t:6.0, log:"note", msg:"👨‍🚀 운용자: TM 스냅샷 캡처 · 절차서 FDP-TWTA-001 Open"},
+  {t:7.5, log:"note", msg:"👨‍🚀 운용자: 지상 수신국 — Ch-4 링크 loss 확인"},
+
+  // ---- Phase C: Isolate (8-12s) ----
+  {t:8.0, step:2, phase:"🔒 격리 단계", phaseClass:"warn",
+    log:"cmd", msg:"▶ TC  TWTA04.EPC.POWER_OFF"},
+  {t:8.5, action:"twta4_off",
+    log:"tm", msg:"TM  TWTA04.EPC.POWER = OFF · ack 수신"},
+  {t:9.5, log:"cmd", msg:"▶ TC  TWTA04.HEATER_OFF"},
+  {t:10.0, log:"tm", msg:"TM  TWTA04.HEATER.T ↘ (감소 중)"},
+  {t:11.0, log:"cmd", msg:"▶ TC  TWTA04.CMD_LATCH = SAFE"},
+  {t:11.5, log:"tm", msg:"TM  TWTA04.STATUS = OFF_SAFE · Bus_I = 0A"},
+
+  // ---- Phase D: Warmup TWTA-5 (12-22s) ----
+  {t:12.0, step:3, phase:"🔥 TWTA-5 워밍업", phaseClass:"warn",
+    action:"warmup_twta5",
+    log:"cmd", msg:"▶ TC  TWTA05.EPC.POWER_ON"},
+  {t:12.5, log:"tm", msg:"TM  TWTA05.EPC.POWER = ON · ack"},
+  {t:13.0, log:"cmd", msg:"▶ TC  TWTA05.HEATER_ON"},
+  {t:13.5, log:"tm", msg:"TM  TWTA05.HEATER.T: 25°C → 상승 중 (target 180°C)"},
+  {t:15.0, log:"tm", msg:"TM  TWTA05.HEATER.T = 120°C"},
+  {t:16.5, log:"tm", msg:"TM  TWTA05.HEATER.T = 180°C · stable"},
+  {t:17.0, log:"cmd", msg:"▶ TC  TWTA05.Vk.RAMP = −7.5kV @ 500V/s"},
+  {t:17.5, log:"tm", msg:"TM  TWTA05.Vk = −1500V (ramping)"},
+  {t:19.0, log:"tm", msg:"TM  TWTA05.Vk = −4500V"},
+  {t:20.5, log:"tm", msg:"TM  TWTA05.Vk = −7500V · Ihc = 1.00 Inom"},
+  {t:21.0, action:"twta5_ready",
+    log:"tm", msg:"TM  TWTA05.STATUS = READY ✓"},
+
+  // ---- Phase E: R-switch reroute (22-30s) ----
+  {t:22.0, step:4, phase:"🔄 R-switch 절체", phaseClass:"warn",
+    log:"cmd", msg:"▶ TC  RSW_IN_S5.POS = POS_CH4 (motor drive)"},
+  {t:22.3, action:"rsw_in_rotate",
+    log:"tm", msg:"TM  RSW_IN_S5.MOTOR_I = 0.4A · 회전 진행 중"},
+  {t:23.0, log:"tm", msg:"TM  RSW_IN_S5.ANGLE = 45° (회전 50%)"},
+  {t:24.0, log:"tm", msg:"TM  RSW_IN_S5.ANGLE = 90° · HOME_SENSOR = LOCKED"},
+  {t:24.5, action:"failover_in_appear",
+    log:"tm", msg:"TM  RSW_IN_S5.POS = 2 · 입력 경로 재구성 완료"},
+  {t:25.5, log:"cmd", msg:"▶ TC  RSW_OUT_R5.POS = POS_OMUX4"},
+  {t:26.0, action:"rsw_out_rotate",
+    log:"tm", msg:"TM  RSW_OUT_R5.MOTOR_I = 0.4A · 회전 중"},
+  {t:27.5, log:"tm", msg:"TM  RSW_OUT_R5.ANGLE = 90° · HOME_SENSOR = LOCKED"},
+  {t:28.0, action:"failover_out_appear",
+    log:"tm", msg:"TM  RSW_OUT_R5.POS = 2 · 출력 경로 재구성 완료"},
+
+  // ---- Phase F: Service restored (30-38s) ----
+  {t:30.0, step:5, phase:"✅ 복구 확인", phaseClass:"ok",
+    action:"rf_flow_start",
+    log:"cmd", msg:"▶ TC  OMUX04.LEVEL_CHECK"},
+  {t:30.5, log:"tm", msg:"TM  OMUX04.RF_power: -∞ → +50dBm (ramping)"},
+  {t:31.5, log:"tm", msg:"TM  OMUX04.RF_power = +52dBm (NOMINAL)"},
+  {t:32.5, log:"cmd", msg:"▶ TC  DOWNLINK_VERIFY Ch-4"},
+  {t:33.0, log:"tm", msg:"TM  Downlink_Ch4.EIRP = NOMINAL ✓"},
+  {t:34.0, action:"restored_hot",
+    log:"note", msg:"✅ 지상 수신국 확인 — Ch-4 정상 수신"},
+  {t:35.0, log:"cmd", msg:"▶ TC  EVENT_LOG.CLOSE Anomaly-2026-04-22-001"},
+  {t:36.0, log:"tm", msg:"TM  이벤트 로그 저장 · Spare_Remaining = 1 (TWTA-6)"},
+  {t:37.0, step:6, phase:"🎉 절체 완료", phaseClass:"ok",
+    log:"note", msg:"복구 완료 · 다음 단계: root cause 분석 · 동형 fail 재발 방지"},
+];
+
+const steps = [
+  { time:"T+0:00", title:"정상 운용", desc:"모든 TWTA 모니터링" },
+  { time:"T+0:04", title:"고장 감지", desc:"TWTA-4 EPC over-current trip" },
+  { time:"T+0:08", title:"격리 (Isolate)", desc:"TWTA-4 완전 OFF" },
+  { time:"T+0:12", title:"예비 기동", desc:"TWTA-5 warmup + Vk ramp" },
+  { time:"T+0:22", title:"R-switch 절체", desc:"입·출력 스위치 회전" },
+  { time:"T+0:30", title:"서비스 복구", desc:"OMUX-4 출력 정상" },
+  { time:"T+0:37", title:"이벤트 종결", desc:"로그 저장 + 분석" },
+];
+
+/* ============================================================
+ * State and actions
+ * ============================================================ */
+let t = 0;         // current seconds
+let playing = false;
+let speed = 1.0;
+let eventIdx = 0;
+let currentStep = 0;
+let rafId = null;
+const MAX_T = 38;
+
+const $ = id => document.getElementById(id);
+const logBody = $("logBody");
+
+function fmtTime(s){
+  const m = Math.floor(s/60);
+  const sec = (s - m*60).toFixed(1);
+  return `T+${m}:${sec.padStart(4,'0')}`;
+}
+
+function renderSteps(){
+  const list = $("stepList");
+  list.innerHTML = '';
+  steps.forEach((s,i)=>{
+    const cls = i<currentStep ? 'done' : i===currentStep ? 'active' : 'future';
+    const div = document.createElement('div');
+    div.className = `step ${cls}`;
+    div.innerHTML = `<span class="time">${s.time}</span><b>${s.title}</b><div style="font-size:11px;color:var(--sub);margin-top:2px">${s.desc}</div>`;
+    list.appendChild(div);
+  });
+}
+
+function addLog(type, msg){
+  const div = document.createElement('div');
+  div.className = `log-line ${type}`;
+  const ts = fmtTime(t);
+  div.innerHTML = `<span class="ts">${ts}</span>${msg}`;
+  logBody.appendChild(div);
+  logBody.scrollTop = logBody.scrollHeight;
+}
+
+function applyAction(name){
+  switch(name){
+    case 'fail_twta4': {
+      $("twta_4_box").classList.remove('active');
+      $("twta_4_box").classList.add('fail');
+      $("twta_4_name").setAttribute('fill','#ff4d5e');
+      $("twta_4_info").textContent = "⚠ FAIL";
+      $("twta_4_info").setAttribute('fill','#ff4d5e');
+      $("led_4").setAttribute('class','led red');
+      $("wg_sin4").setAttribute('class','wg fail');
+      $("wg_tout4").setAttribute('class','wg fail');
+      break;
+    }
+    case 'twta4_off': {
+      $("twta_4_box").classList.remove('fail');
+      $("twta_4_box").classList.add('off');
+      $("twta_4_name").setAttribute('fill','#6a7490');
+      $("twta_4_info").textContent = "OFF_SAFE";
+      $("twta_4_info").setAttribute('fill','#6a7490');
+      $("led_4").setAttribute('class','led off');
+      $("wg_imux4").setAttribute('class','wg dead');
+      $("wg_sin4").setAttribute('class','wg dead');
+      $("wg_tout4").setAttribute('class','wg dead');
+      $("wg_romux4").setAttribute('class','wg dead');
+      break;
+    }
+    case 'warmup_twta5': {
+      $("twta_5_box").classList.remove('standby');
+      $("twta_5_box").classList.add('warmup');
+      $("twta_5_info").textContent = "WARMUP";
+      $("twta_5_info").setAttribute('fill','#ffb23a');
+      $("led_5").setAttribute('class','led amber pulse');
+      break;
+    }
+    case 'twta5_ready': {
+      $("twta_5_box").classList.remove('warmup');
+      $("twta_5_box").classList.add('active');
+      $("twta_5_name").setAttribute('fill','#4ddb88');
+      $("twta_5_info").textContent = "READY ✓";
+      $("twta_5_info").setAttribute('fill','#4ddb88');
+      $("led_5").setAttribute('class','led green');
+      break;
+    }
+    case 'rsw_in_rotate': {
+      $("rswROT_IN_S5").setAttribute('style','transform:rotate(90deg);transition:transform 2s ease-in-out');
+      break;
+    }
+    case 'failover_in_appear': {
+      $("wg_failover_in").style.display = '';
+      $("wg_failover_in").setAttribute('class','wg new');
+      $("wg_sin5").setAttribute('class','wg new');
+      break;
+    }
+    case 'rsw_out_rotate': {
+      $("rswROT_OUT_R5").setAttribute('style','transform:rotate(90deg);transition:transform 2s ease-in-out');
+      break;
+    }
+    case 'failover_out_appear': {
+      $("wg_failover_out").style.display = '';
+      $("wg_failover_out").setAttribute('class','wg new');
+      $("wg_tout5").setAttribute('class','wg new');
+      break;
+    }
+    case 'rf_flow_start': {
+      // transition to cyan maintained briefly
+      break;
+    }
+    case 'restored_hot': {
+      // switch cyan to orange hot = service restored nominal
+      $("wg_failover_in").setAttribute('class','wg restored');
+      $("wg_failover_out").setAttribute('class','wg restored');
+      $("wg_sin5").setAttribute('class','wg restored');
+      $("wg_tout5").setAttribute('class','wg restored');
+      break;
+    }
+  }
+}
+
+function processEventsUpTo(target){
+  while(eventIdx < timeline.length && timeline[eventIdx].t <= target){
+    const ev = timeline[eventIdx];
+    if(ev.phase){
+      $("phase").textContent = ev.phase;
+      $("phase").className = 'phase ' + (ev.phaseClass||'');
+    }
+    if(ev.step !== undefined){
+      currentStep = ev.step;
+      renderSteps();
+    }
+    if(ev.action) applyAction(ev.action);
+    if(ev.log) addLog(ev.log, ev.msg);
+    eventIdx++;
+  }
+}
+
+let lastRaf = 0;
+function tick(now){
+  if(!lastRaf) lastRaf = now;
+  const dt = (now - lastRaf) / 1000;
+  lastRaf = now;
+  if(playing){
+    t += dt * speed;
+    if(t >= MAX_T){
+      t = MAX_T;
+      playing = false;
+      $("play").textContent = "▶ 재시작";
+    }
+    $("clock").textContent = fmtTime(t);
+    processEventsUpTo(t);
+  }
+  rafId = requestAnimationFrame(tick);
+}
+rafId = requestAnimationFrame(tick);
+
+function reset(){
+  t = 0; eventIdx = 0; currentStep = 0;
+  playing = false;
+  lastRaf = 0;
+  $("clock").textContent = fmtTime(0);
+  $("phase").textContent = "🟢 정상 운용"; $("phase").className = "phase";
+  $("play").textContent = "▶ 시작";
+  logBody.innerHTML = '';
+  // Reset SVG states
+  $("twta_4_box").setAttribute('class','twta-box active');
+  $("twta_4_name").setAttribute('fill','#4ddb88');
+  $("twta_4_info").textContent = 'Vk −7.5kV';
+  $("twta_4_info").setAttribute('fill','#e6ecff');
+  $("led_4").setAttribute('class','led green');
+  $("twta_5_box").setAttribute('class','twta-box standby');
+  $("twta_5_name").setAttribute('fill','#ffb23a');
+  $("twta_5_info").textContent = 'STANDBY';
+  $("twta_5_info").setAttribute('fill','#e6ecff');
+  $("led_5").setAttribute('class','led amber');
+  $("wg_imux4").setAttribute('class','wg cold');
+  $("wg_sin4").setAttribute('class','wg hot');
+  $("wg_tout4").setAttribute('class','wg hot');
+  $("wg_romux4").setAttribute('class','wg hot');
+  $("wg_sin5").setAttribute('class','wg cold');
+  $("wg_tout5").setAttribute('class','wg cold');
+  $("wg_failover_in").style.display='none';
+  $("wg_failover_out").style.display='none';
+  $("rswROT_IN_S5").removeAttribute('style');
+  $("rswROT_OUT_R5").removeAttribute('style');
+  renderSteps();
+}
+
+$("play").onclick = () => {
+  if(t >= MAX_T) reset();
+  playing = !playing;
+  $("play").textContent = playing ? "⏸ 일시정지" : "▶ 시작";
+};
+$("step").onclick = () => {
+  playing = false;
+  $("play").textContent = "▶ 시작";
+  // jump to next event time
+  if(eventIdx < timeline.length){
+    t = timeline[eventIdx].t;
+    $("clock").textContent = fmtTime(t);
+    processEventsUpTo(t);
+  }
+};
+$("reset").onclick = reset;
+$("rewind").onclick = () => { t = Math.max(0, t - 5); $("clock").textContent = fmtTime(t); };
+$("speed").onchange = e => { speed = parseFloat(e.target.value); };
+
+document.addEventListener('keydown', e => {
+  if(e.key === ' '){ e.preventDefault(); $("play").click(); }
+  if(e.key === 'ArrowRight'){ $("step").click(); }
+  if(e.key === 'ArrowLeft'){ $("rewind").click(); }
+});
+
+document.querySelectorAll('.log-tabs button').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.log-tabs button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.tab;
+    document.querySelectorAll('.log-line').forEach(l => {
+      l.style.display = (tab==='all' || l.classList.contains(tab)) ? '' : 'none';
+    });
+  };
+});
+
+renderSteps();
+</script>
+</body>
+</html>
