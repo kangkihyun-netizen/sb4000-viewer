@@ -148,11 +148,11 @@ main{flex:1;display:grid;grid-template-columns:240px 1fr 320px;gap:12px;padding:
       <div><i style="background:#ffb23a;color:#ffb23a"></i>HOT RF / WARMUP</div>
       <div><i style="background:#f5d94a;color:#f5d94a"></i>STANDBY</div>
       <div><i style="background:#555;color:#777"></i>OFF / DEAD</div>
-      <div style="font-weight:700;color:var(--gold);margin:6px 0 3px">RF 신호 흐름 ✨</div>
-      <div><i style="background:#ff9820;color:#ff9820;border-radius:50%"></i>정상 (IMUX→OMUX)</div>
-      <div><i style="background:#ff2a38;color:#ff2a38;border-radius:50%"></i>고장 채널</div>
-      <div><i style="background:#3de0ff;color:#3de0ff;border-radius:50%"></i>절체 경로</div>
-      <div><i style="background:#4ddb88;color:#4ddb88;border-radius:50%"></i>복구 완료</div>
+      <div style="font-weight:700;color:var(--gold);margin:6px 0 3px">RF 신호 흐름 ▸</div>
+      <div><span style="color:#ff9820;font-weight:700;margin-right:5px">▸▸▸</span>정상 (IMUX→OMUX)</div>
+      <div><span style="color:#ff2a38;font-weight:700;margin-right:5px">▸▸▸</span>고장 채널</div>
+      <div><span style="color:#3de0ff;font-weight:700;margin-right:5px">▸▸▸</span>절체 경로</div>
+      <div><span style="color:#4ddb88;font-weight:700;margin-right:5px">▸▸▸</span>복구 완료</div>
     </div>
     <div class="viz-hint" id="vizHint"></div>
   </section>
@@ -391,6 +391,38 @@ function wp(obj){
   return p;
 }
 
+// Piecewise linear path — intuitive straight-line segments
+class LinearPath {
+  constructor(points){
+    this.points = points;
+    this.segLens = [];
+    this.cumLens = [0];
+    let total = 0;
+    for(let i=0;i<points.length-1;i++){
+      const L = points[i+1].distanceTo(points[i]);
+      this.segLens.push(L);
+      total += L;
+      this.cumLens.push(total);
+    }
+    this.totalLen = total;
+  }
+  // Fill outPos and outDir at parameter t in [0,1]
+  getPointTangent(t, outPos, outDir){
+    const d = t * this.totalLen;
+    for(let i=0;i<this.segLens.length;i++){
+      if(d <= this.cumLens[i+1] + 1e-6){
+        const localT = this.segLens[i] > 0 ? (d - this.cumLens[i]) / this.segLens[i] : 0;
+        outPos.copy(this.points[i]).lerp(this.points[i+1], localT);
+        outDir.subVectors(this.points[i+1], this.points[i]).normalize();
+        return;
+      }
+    }
+    const last = this.points.length - 1;
+    outPos.copy(this.points[last]);
+    outDir.subVectors(this.points[last], this.points[last-1]).normalize();
+  }
+}
+
 function buildChannelPath(ch, route){
   // route = 'nominal' | 'failover' (ch must be 4 for failover)
   const via = route==='failover' ? 5 : ch;
@@ -398,29 +430,17 @@ function buildChannelPath(ch, route){
   if(!twta || !twta.wg_in || !twta.helix || !twta.iso) return null;
   if(!REG.rsw_housing.in[via] || !REG.rsw_housing.out[via]) return null;
 
-  // IMUX port position: derive from IMUX_BANK world center + channel offset
-  // The bank spans along world Z (Blender Y after yup), channels at [-0.72,-0.24,0.24,0.72]
-  // Bank is scaled so half-extent along Z ≈ 1.0 in world
   const imuxCenter = wp(REG.imux_bank);
   const omuxCenter = wp(REG.omux_bank);
 
-  // Compute IMUX/OMUX port positions using first/last nominal WG segment of channel
-  // (only available for 1..4) — fall back to bank center + offset
+  // IMUX/OMUX port approximate positions
   let imuxPort, omuxPort;
   const firstWg = REG.wg_nominal[`WG_IMUX${ch}_Sin${ch}_1`];
   const lastWg  = REG.wg_nominal[`WG_R${ch}_OMUX${ch}_2`];
-  if(firstWg){
-    imuxPort = wp(firstWg);
-  } else {
-    imuxPort = imuxCenter.clone();
-  }
-  if(lastWg){
-    omuxPort = wp(lastWg);
-  } else {
-    omuxPort = omuxCenter.clone();
-  }
+  imuxPort = firstWg ? wp(firstWg) : imuxCenter.clone();
+  omuxPort = lastWg  ? wp(lastWg)  : omuxCenter.clone();
 
-  // Build waypoint list
+  // Straight-line waypoint polyline
   const pts = [
     imuxPort.clone(),
     wp(REG.rsw_housing.in[via]),
@@ -430,45 +450,63 @@ function buildChannelPath(ch, route){
     wp(REG.rsw_housing.out[via]),
     omuxPort.clone()
   ];
-  return new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.3);
+  return new LinearPath(pts);
 }
 
-function createFlowParticles(ch, color, count=8){
+// Shared arrow geometry — cone pointing along +Z (local)
+const ARROW_GEOM = new THREE.ConeGeometry(0.028, 0.09, 12);
+ARROW_GEOM.rotateX(Math.PI/2);   // apex now along +Z
+ARROW_GEOM.translate(0, 0, 0.03); // center of mass closer to apex
+
+// Static line showing the full path (thin glowing stripe)
+function createPathLine(path, color){
+  const pts = path.points.map(p => p.clone());
+  const geom = new THREE.BufferGeometry().setFromPoints(pts);
+  const mat = new THREE.LineBasicMaterial({
+    color: color,
+    transparent: true, opacity: 0.35
+  });
+  return new THREE.Line(geom, mat);
+}
+
+function createFlowParticles(ch, color, path, count=5){
   const group = new THREE.Group();
-  const geom = new THREE.SphereGeometry(0.022, 10, 10);
   const particles = [];
   for(let i=0;i<count;i++){
     const mat = new THREE.MeshStandardMaterial({
-      color: color, emissive: color, emissiveIntensity: 4.0,
+      color: color, emissive: color, emissiveIntensity: 5.0,
       transparent: true, opacity: 0.95
     });
-    const s = new THREE.Mesh(geom, mat);
+    const s = new THREE.Mesh(ARROW_GEOM, mat);
     s.userData.t = i/count;
     group.add(s);
     particles.push(s);
   }
+  // Add the static path line underneath
+  const line = createPathLine(path, color);
+  group.add(line);
   FLOW.group.add(group);
-  return {group, particles};
+  return {group, particles, line};
 }
 
 function initAllFlows(){
   for(let ch=1; ch<=4; ch++){
-    const curve = buildChannelPath(ch, 'nominal');
-    if(!curve) continue;
-    const {group, particles} = createFlowParticles(ch, 0xff9820);
+    const path = buildChannelPath(ch, 'nominal');
+    if(!path) continue;
+    const {group, particles, line} = createFlowParticles(ch, 0xff9820, path);
     FLOW.curves[ch] = {
-      nominal: {curve, particles, group},
+      nominal: {path, particles, group, line},
       failover: null,
       route: 'nominal',
       active: true,
       color: 0xff9820
     };
   }
-  // Build ch-4 failover curve (inactive until switch)
-  const failCurve = buildChannelPath(4, 'failover');
-  if(failCurve){
-    const {group, particles} = createFlowParticles(4, 0x3de0ff);
-    FLOW.curves[4].failover = {curve: failCurve, particles, group};
+  // Build ch-4 failover path (inactive until switch)
+  const failPath = buildChannelPath(4, 'failover');
+  if(failPath){
+    const {group, particles, line} = createFlowParticles(4, 0x3de0ff, failPath);
+    FLOW.curves[4].failover = {path: failPath, particles, group, line};
     group.visible = false;
   }
 }
@@ -480,6 +518,9 @@ function setFlowColor(ch, route, colorHex){
     p.material.color.setHex(colorHex);
     p.material.emissive.setHex(colorHex);
   });
+  if(c[route].line){
+    c[route].line.material.color.setHex(colorHex);
+  }
 }
 
 function setChannelFlow(ch, state){
@@ -523,21 +564,27 @@ function setChannelFlow(ch, state){
   }
 }
 
+const _tmpPos = new THREE.Vector3();
+const _tmpDir = new THREE.Vector3();
+const _tmpUp  = new THREE.Vector3(0,0,1);
+
 function updateFlows(dt){
   if(!flowVisible) return;
   Object.entries(FLOW.curves).forEach(([ch, c])=>{
     if(!c.active) return;
     const branch = c[c.route];
     if(!branch) return;
-    const curve = branch.curve;
-    const speed = 0.22;  // one full traversal per ~4.5s
+    const path = branch.path;
+    const speed = 0.22;
     branch.particles.forEach(p=>{
       p.userData.t = (p.userData.t + dt * speed) % 1;
-      const pos = curve.getPointAt(p.userData.t);
-      p.position.copy(pos);
-      // Fade in/out at ends
+      path.getPointTangent(p.userData.t, _tmpPos, _tmpDir);
+      p.position.copy(_tmpPos);
+      // Orient arrow: local +Z axis → flow direction
+      p.quaternion.setFromUnitVectors(_tmpUp, _tmpDir);
+      // Fade at ends
       const t = p.userData.t;
-      const fade = t < 0.05 ? t/0.05 : t > 0.95 ? (1-t)/0.05 : 1;
+      const fade = t < 0.04 ? t/0.04 : t > 0.96 ? (1-t)/0.04 : 1;
       p.material.opacity = 0.95 * fade;
     });
   });
