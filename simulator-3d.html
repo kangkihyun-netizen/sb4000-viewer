@@ -427,36 +427,40 @@ function buildChannelPath(ch, route){
   // route = 'nominal' | 'failover' (ch must be 4 for failover)
   const via = route==='failover' ? 5 : ch;
   const twta = REG.twta[via];
-  if(!twta || !twta.wg_in || !twta.helix || !twta.iso) return null;
-  if(!REG.rsw_housing.in[via] || !REG.rsw_housing.out[via]) return null;
+  if(!twta || !twta.helix) return null;
 
   const imuxCenter = wp(REG.imux_bank);
   const omuxCenter = wp(REG.omux_bank);
 
-  // IMUX/OMUX port approximate positions
+  // IMUX/OMUX port approximate positions (the WG endpoints that anchor the flow)
   let imuxPort, omuxPort;
   const firstWg = REG.wg_nominal[`WG_IMUX${ch}_Sin${ch}_1`];
   const lastWg  = REG.wg_nominal[`WG_R${ch}_OMUX${ch}_2`];
   imuxPort = firstWg ? wp(firstWg) : imuxCenter.clone();
   omuxPort = lastWg  ? wp(lastWg)  : omuxCenter.clone();
 
-  // Straight-line waypoint polyline
-  const pts = [
-    imuxPort.clone(),
-    wp(REG.rsw_housing.in[via]),
-    wp(twta.wg_in[0]),
-    wp(twta.helix[0]),
-    wp(twta.iso[0]),
-    wp(REG.rsw_housing.out[via]),
-    omuxPort.clone()
-  ];
-  return new LinearPath(pts);
+  // Single straight line IMUX → via (TWTA) → OMUX
+  // Only 3 waypoints so flow is monotonic in the primary (up) axis.
+  // TWTA helix is kept as a midpoint to suggest passage through the amplifier.
+  const via_pos = wp(twta.helix[0]);
+
+  // To keep flow direction monotonic, project TWTA midpoint onto the line IMUX→OMUX.
+  // This prevents Z-axis reversal that made arrows look bidirectional.
+  const line = new THREE.Vector3().subVectors(omuxPort, imuxPort);
+  const v = new THREE.Vector3().subVectors(via_pos, imuxPort);
+  const tProj = Math.max(0.15, Math.min(0.85, v.dot(line) / line.dot(line)));
+  const projected = imuxPort.clone().add(line.clone().multiplyScalar(tProj));
+  // Blend: 80% projected (keeps monotonicity), 20% toward TWTA (hints at amp)
+  const mid = projected.lerp(via_pos, 0.20);
+
+  return new LinearPath([imuxPort.clone(), mid, omuxPort.clone()]);
 }
 
-// Shared arrow geometry — cone pointing along +Z (local)
-const ARROW_GEOM = new THREE.ConeGeometry(0.028, 0.09, 12);
-ARROW_GEOM.rotateX(Math.PI/2);   // apex now along +Z
-ARROW_GEOM.translate(0, 0, 0.03); // center of mass closer to apex
+// Shared arrow geometry — elongated cone pointing along +Z (local)
+// Longer and thinner so the direction is unambiguous from any angle.
+const ARROW_GEOM = new THREE.ConeGeometry(0.025, 0.12, 12);
+ARROW_GEOM.rotateX(Math.PI/2);   // apex now along +Z (flow direction)
+ARROW_GEOM.translate(0, 0, 0.04); // shift so arrow sits centered on path point
 
 // Static line showing the full path (thin glowing stripe)
 function createPathLine(path, color){
@@ -489,6 +493,29 @@ function createFlowParticles(ch, color, path, count=5){
   return {group, particles, line};
 }
 
+// Create "IN"/"OUT" text sprites at IMUX and OMUX ends
+function createDirLabel(text, pos, color){
+  const canvas = document.createElement('canvas');
+  canvas.width = 128; canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'rgba(6,12,24,0.85)';
+  ctx.fillRect(0,0,128,64);
+  ctx.strokeStyle = '#'+color.toString(16).padStart(6,'0');
+  ctx.lineWidth = 3;
+  ctx.strokeRect(3,3,122,58);
+  ctx.fillStyle = '#'+color.toString(16).padStart(6,'0');
+  ctx.font = 'bold 36px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, 64, 32);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(0.22, 0.11, 1);
+  sprite.position.copy(pos);
+  return sprite;
+}
+
 function initAllFlows(){
   for(let ch=1; ch<=4; ch++){
     const path = buildChannelPath(ch, 'nominal');
@@ -508,6 +535,16 @@ function initAllFlows(){
     const {group, particles, line} = createFlowParticles(4, 0x3de0ff, failPath);
     FLOW.curves[4].failover = {path: failPath, particles, group, line};
     group.visible = false;
+  }
+
+  // Add global "INPUT" / "OUTPUT" labels at IMUX and OMUX banks
+  if(REG.imux_bank && REG.omux_bank){
+    const imux_pos = wp(REG.imux_bank).clone();
+    imux_pos.y -= 0.15;  // shift below IMUX bar
+    const omux_pos = wp(REG.omux_bank).clone();
+    omux_pos.y += 0.20;  // shift above OMUX bar
+    FLOW.group.add(createDirLabel('◀ INPUT', imux_pos, 0xc59bff));
+    FLOW.group.add(createDirLabel('OUTPUT ▶', omux_pos, 0xffb23a));
   }
 }
 
