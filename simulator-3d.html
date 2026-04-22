@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<title>TWTA 절체 3D 훈련 시뮬레이터 — Blender 모델 기반</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>
+:root{
+  --bg:#050914; --panel:#0b1530; --panel2:#0f1a38; --ink:#e6ecff; --sub:#97a4c7;
+  --gold:#ffb23a; --coral:#ff6f8a; --green:#4ddb88; --red:#ff4d5e; --cyan:#3de0ff;
+  --line:#1e2e55; --mono:"SF Mono","Menlo","Consolas",monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(180deg,#040812,#0a1426 40%);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Noto Sans KR",sans-serif;
+  overflow:hidden;height:100vh;display:flex;flex-direction:column}
+header{padding:12px 20px;border-bottom:1px solid var(--line);background:#060b18;
+  display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+header h1{margin:0;font-size:17px;font-weight:700;letter-spacing:-.01em}
+header small{color:var(--sub)}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;
+  background:#0f3a20;color:#b8f1c8;border:1px solid #2f6b48}
+
+.top{display:flex;gap:16px;padding:10px 20px;align-items:center;flex-wrap:wrap;
+  background:#080e1c;border-bottom:1px solid var(--line)}
+.clock{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--gold);
+  background:#14203d;padding:6px 14px;border-radius:6px;border:1px solid var(--gold);
+  min-width:130px;text-align:center}
+.phase{font-size:13px;font-weight:600;padding:6px 12px;border-radius:6px;
+  background:var(--panel);border:1px solid var(--line)}
+.phase.alert{background:#3a1010;border-color:#7a1e1e;color:#ffa0a0;animation:pulse-alert 1s infinite}
+.phase.warn{background:#3a2410;border-color:#7a4a1e;color:#ffd3a0}
+.phase.ok{background:#0f3a20;border-color:#2f6b48;color:#b8f1c8}
+@keyframes pulse-alert{0%,100%{opacity:1}50%{opacity:.5}}
+.controls{display:flex;gap:6px;margin-left:auto}
+.controls button{padding:7px 12px;background:var(--panel);border:1px solid var(--line);
+  color:var(--ink);border-radius:6px;cursor:pointer;font-size:12.5px;font-weight:600}
+.controls button:hover{border-color:var(--gold)}
+.controls button.primary{background:linear-gradient(180deg,#ffb23a,#e08a10);color:#1a0e02;border:none}
+.controls select{padding:6px 10px;background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:6px;font-size:12px}
+
+main{flex:1;display:grid;grid-template-columns:240px 1fr 320px;gap:12px;padding:12px 20px;min-height:0}
+@media (max-width:1200px){main{grid-template-columns:1fr;grid-template-rows:auto 1fr auto}}
+
+.procbox{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;
+  display:flex;flex-direction:column}
+.procbox h3{margin:0;padding:10px 14px;font-size:12px;color:var(--sub);font-weight:600;
+  letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid var(--line)}
+.procbox .body{flex:1;overflow-y:auto}
+.step{padding:9px 12px;border-bottom:1px solid var(--line);font-size:12px;cursor:pointer}
+.step.done{color:var(--sub)}
+.step.done::before{content:"✓ ";color:var(--green);font-weight:700}
+.step.active{background:linear-gradient(90deg,#2a1e08,#14203d);border-left:3px solid var(--gold);
+  color:var(--gold);font-weight:600}
+.step.active::before{content:"▶ ";color:var(--gold);animation:blink 1s infinite}
+.step.future{opacity:.45}
+.step .time{font-family:var(--mono);font-size:10px;color:var(--sub);display:block}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+.viz3d{background:#050914;border:1px solid var(--line);border-radius:10px;position:relative;overflow:hidden;min-height:400px}
+#canvas3d{width:100%;height:100%;display:block}
+.viz-overlay{position:absolute;top:10px;left:12px;background:rgba(6,12,24,.85);
+  border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:11px;color:var(--sub);
+  pointer-events:none;backdrop-filter:blur(6px)}
+.viz-hint{position:absolute;bottom:10px;left:12px;background:rgba(6,12,24,.85);
+  border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:11px;color:var(--sub);
+  backdrop-filter:blur(6px)}
+.legend-3d{position:absolute;top:10px;right:12px;background:rgba(6,12,24,.85);
+  border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:10.5px;color:var(--ink);
+  backdrop-filter:blur(6px)}
+.legend-3d div{margin:2px 0}
+.legend-3d i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px;
+  box-shadow:0 0 6px currentColor}
+
+.log{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  display:flex;flex-direction:column;min-height:0}
+.log-tabs{display:flex;border-bottom:1px solid var(--line)}
+.log-tabs button{flex:1;padding:8px;background:transparent;border:none;color:var(--sub);
+  cursor:pointer;font-size:11.5px;font-weight:600;border-bottom:2px solid transparent}
+.log-tabs button.active{color:var(--gold);border-bottom-color:var(--gold)}
+.log-body{flex:1;overflow-y:auto;padding:6px 0;font-family:var(--mono);font-size:11px;line-height:1.5;min-height:0}
+.log-line{padding:3px 12px;border-left:3px solid transparent;word-break:break-word}
+.log-line.cmd{border-left-color:var(--coral);color:#ffc7d4}
+.log-line.tm{border-left-color:var(--green);color:#c7f0d8}
+.log-line.alarm{border-left-color:var(--red);background:#1f0a0a;color:#ffb3b3;font-weight:700}
+.log-line.note{color:var(--sub);font-style:italic}
+.log-line .ts{color:#5f6d94;margin-right:5px}
+
+.load{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(5,9,20,.92);z-index:100;flex-direction:column;gap:14px}
+.load .bar{width:260px;height:5px;background:#1a2340;border-radius:3px;overflow:hidden}
+.load .fill{height:100%;background:linear-gradient(90deg,#ffb23a,#3de0ff);width:0;transition:width .2s}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🛰️ TWTA 절체 3D 훈련 시뮬레이터 — Blender 모델 기반</h1>
+    <small>Thales SB4000B 표준 TWTA (Ku 150W급) · DSS TM 비주얼 대응</small>
+  </div>
+  <div>
+    <span class="badge">TRAINING MODE</span>
+    <span style="color:var(--sub);font-size:11px;margin-left:6px">※ 실제 위성 영향 없음</span>
+  </div>
+</header>
+
+<div class="top">
+  <div class="clock" id="clock">T+0:00.0</div>
+  <div class="phase" id="phase">🟢 정상 운용</div>
+  <div style="font-size:12px;color:var(--sub)">시나리오: <b style="color:var(--ink)">TWTA-4 EPC trip → TWTA-5 절체</b></div>
+  <div class="controls">
+    <button id="rewind">⏮</button>
+    <button id="play" class="primary">▶ 시작</button>
+    <button id="step">⏭ 스텝</button>
+    <select id="speed">
+      <option value="0.5">0.5×</option>
+      <option value="1" selected>1×</option>
+      <option value="2">2×</option>
+      <option value="4">4×</option>
+    </select>
+    <button id="reset">🔄 리셋</button>
+  </div>
+</div>
+
+<main>
+
+  <aside class="procbox">
+    <h3>복구 프로시저</h3>
+    <div class="body" id="stepList"></div>
+  </aside>
+
+  <section class="viz3d">
+    <canvas id="canvas3d"></canvas>
+    <div class="load" id="loadOverlay">
+      <div style="font-size:14px;color:var(--gold)">📦 Blender 3D 모델 로딩 중...</div>
+      <div class="bar"><div class="fill" id="loadFill"></div></div>
+      <div style="font-size:11px;color:var(--sub)" id="loadText">연결 중...</div>
+    </div>
+    <div class="viz-overlay">
+      🖱️ 드래그=회전 · 휠=확대 · 우클릭드래그=팬
+    </div>
+    <div class="legend-3d">
+      <div><i style="background:#4ddb88;color:#4ddb88"></i>ACTIVE</div>
+      <div><i style="background:#ff4d5e;color:#ff4d5e"></i>FAIL</div>
+      <div><i style="background:#ffb23a;color:#ffb23a"></i>HOT RF / WARMUP</div>
+      <div><i style="background:#f5d94a;color:#f5d94a"></i>STANDBY</div>
+      <div><i style="background:#3de0ff;color:#3de0ff"></i>REROUTED (new)</div>
+      <div><i style="background:#555;color:#777"></i>OFF / DEAD</div>
+    </div>
+    <div class="viz-hint" id="vizHint"></div>
+  </section>
+
+  <aside class="log">
+    <div class="log-tabs">
+      <button class="active" data-tab="all">전체</button>
+      <button data-tab="cmd">CMD</button>
+      <button data-tab="tm">TM</button>
+    </div>
+    <div class="log-body" id="logBody"></div>
+  </aside>
+</main>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.162.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.162.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ============================================================
+ * Three.js scene
+ * ============================================================ */
+const canvas = document.getElementById('canvas3d');
+const container = canvas.parentElement;
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:false});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x060a15);
+
+const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
+camera.position.set(2.8, 1.2, 2.2);
+
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(1.0, 0.1, 0.15);
+controls.enableDamping = true;
+controls.dampingFactor = 0.1;
+controls.minDistance = 0.5;
+controls.maxDistance = 10;
+
+// Lighting
+const hemi = new THREE.HemisphereLight(0x7080a0, 0x202030, 0.6);
+scene.add(hemi);
+const keyLight = new THREE.DirectionalLight(0xffffff, 2.5);
+keyLight.position.set(4, 5, 3);
+scene.add(keyLight);
+const fill = new THREE.DirectionalLight(0x88aaff, 0.8);
+fill.position.set(-3, 2, 1);
+scene.add(fill);
+
+function resize(){
+  const w = container.clientWidth;
+  const h = container.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w/h;
+  camera.updateProjectionMatrix();
+}
+resize();
+new ResizeObserver(resize).observe(container);
+
+/* ============================================================
+ * Object registry + material palette
+ * ============================================================ */
+// Standard PBR materials
+function mat(color, opts={}){
+  const m = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(color),
+    metalness: opts.metalness ?? 0.5,
+    roughness: opts.roughness ?? 0.4,
+    emissive: new THREE.Color(opts.emissive ?? 0x000000),
+    emissiveIntensity: opts.emissiveIntensity ?? 0,
+    transparent: opts.transparent ?? false,
+    opacity: opts.opacity ?? 1
+  });
+  return m;
+}
+
+// Status material factory — we'll CLONE per object, not share
+const STATUS = {
+  active:  ()=>mat(0x2ad86a, {emissive:0x2ad86a, emissiveIntensity:1.2}),
+  fail:    ()=>mat(0xff2a38, {emissive:0xff2a38, emissiveIntensity:2.5}),
+  standby: ()=>mat(0xf5c63e, {emissive:0xf5c63e, emissiveIntensity:1.0}),
+  warmup:  ()=>mat(0xff8a1e, {emissive:0xff8a1e, emissiveIntensity:2.0}),
+  off:     ()=>mat(0x3a3d50, {emissive:0x000000, emissiveIntensity:0}),
+};
+
+const WG = {
+  cold:    ()=>mat(0x6a6f82, {metalness:0.9, roughness:0.4}),
+  hot:     ()=>mat(0xff9820, {metalness:0.85, roughness:0.25, emissive:0xff7a10, emissiveIntensity:1.2}),
+  fail:    ()=>mat(0xff2a38, {metalness:0.85, roughness:0.3,  emissive:0xff1a1a, emissiveIntensity:2.0}),
+  dead:    ()=>mat(0x2a2d3a, {metalness:0.5,  roughness:0.7}),
+  new:     ()=>mat(0x3de0ff, {metalness:0.85, roughness:0.25, emissive:0x1ad0ff, emissiveIntensity:2.0}),
+  restored:()=>mat(0x4ddb88, {metalness:0.85, roughness:0.25, emissive:0x2ad86a, emissiveIntensity:1.5}),
+};
+
+// Indexed registries
+const REG = {
+  twta: {1:{},2:{},3:{},4:{},5:{},6:{}},    // [idx].led, .helix, .coll, .heater, .epc, .box...
+  wg_nominal: {},  // key: name → obj
+  wg_failover_in: [],
+  wg_failover_out: [],
+  rsw_rotors: {in:{}, out:{}},  // [idx] → rotor obj
+};
+
+/* ============================================================
+ * Load GLB
+ * ============================================================ */
+const loader = new GLTFLoader();
+const loadFill = document.getElementById('loadFill');
+const loadText = document.getElementById('loadText');
+loader.load('twta_bay.glb',
+  (gltf) => {
+    const root = gltf.scene;
+    scene.add(root);
+
+    // Traverse and register objects
+    root.traverse((o) => {
+      if(!o.isMesh) return;
+
+      // Clone material so we can modify independently per object
+      if(Array.isArray(o.material)){
+        o.material = o.material.map(m => m.clone());
+      } else if(o.material){
+        o.material = o.material.clone();
+      }
+
+      const n = o.name;
+
+      // TWTA parts: TWTA01_LED, TWTA01_HELIX etc.
+      const twtaMatch = n.match(/^TWTA(\d+)_(.+)$/);
+      if(twtaMatch){
+        const idx = parseInt(twtaMatch[1]);
+        const role = twtaMatch[2];
+        if(!REG.twta[idx]) REG.twta[idx] = {};
+        const key = role.toLowerCase();
+        if(!REG.twta[idx][key]) REG.twta[idx][key] = [];
+        REG.twta[idx][key].push(o);
+      }
+
+      // Waveguides nominal
+      if(n.match(/^WG_IMUX\d+_Sin\d+/) ||
+         n.match(/^WG_S\d+_TWTA\d+_in/) ||
+         n.match(/^WG_TWTA\d+_out_R\d+/) ||
+         n.match(/^WG_R\d+_OMUX\d+/)){
+        REG.wg_nominal[n] = o;
+      }
+      // Failover in/out
+      if(n.startsWith("WG_FAILOVER_IN_")){
+        REG.wg_failover_in.push(o);
+        o.visible = false;
+      }
+      if(n.startsWith("WG_FAILOVER_OUT_")){
+        REG.wg_failover_out.push(o);
+        o.visible = false;
+      }
+      // R-switch rotors
+      const rotMatch = n.match(/^RSW_(IN|OUT)_([SR])(\d+)_ROTOR$/);
+      if(rotMatch){
+        const side = rotMatch[1] === 'IN' ? 'in' : 'out';
+        const idx = parseInt(rotMatch[3]);
+        REG.rsw_rotors[side][idx] = o;
+      }
+    });
+
+    // Sort failover by name (FAILOVER_IN_1, _2 …)
+    REG.wg_failover_in.sort((a,b)=> a.name.localeCompare(b.name));
+    REG.wg_failover_out.sort((a,b)=> a.name.localeCompare(b.name));
+
+    console.log('Registered TWTA:', Object.keys(REG.twta).map(i=>`${i}:${Object.keys(REG.twta[i]).join(',')}`));
+    console.log('WG nominal:', Object.keys(REG.wg_nominal).length, 'failover in:', REG.wg_failover_in.length, 'out:', REG.wg_failover_out.length);
+    console.log('RSW rotors:', Object.keys(REG.rsw_rotors.in), Object.keys(REG.rsw_rotors.out));
+
+    setBaselineState();
+
+    // Frame camera on payload bay
+    // Bay center approx (1.0, 0.1, 0.15) — already set in controls.target
+    document.getElementById('loadOverlay').style.display = 'none';
+    document.getElementById('vizHint').textContent =
+      `✅ 로드 완료 · TWTA ${Object.keys(REG.twta).length}기, 도파관 ${Object.keys(REG.wg_nominal).length+REG.wg_failover_in.length+REG.wg_failover_out.length}개 인식`;
+  },
+  (xhr) => {
+    if(xhr.lengthComputable){
+      const p = (xhr.loaded/xhr.total)*100;
+      loadFill.style.width = p.toFixed(0) + '%';
+      loadText.textContent = `${(xhr.loaded/1024/1024).toFixed(1)} / ${(xhr.total/1024/1024).toFixed(1)} MB`;
+    } else {
+      loadText.textContent = `${(xhr.loaded/1024/1024).toFixed(1)} MB`;
+    }
+  },
+  (err) => { console.error(err); loadText.textContent = 'Failed to load: ' + err.message; }
+);
+
+function animate(){
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+/* ============================================================
+ * State mutators — replace materials on registered objects
+ * These are the "applyAction" calls invoked by the timeline
+ * ============================================================ */
+function applyStatus(idx, state){
+  const twta = REG.twta[idx];
+  if(!twta) return;
+  // LED is the primary status indicator
+  if(twta.led){
+    const m = STATUS[state] ? STATUS[state]() : STATUS.off();
+    twta.led.forEach(o => o.material = m);
+  }
+  // Also tint the EPC slightly
+  if(twta.epc){
+    const m = twta.epc[0].material;
+    if(state==='fail'){ m.emissive.set(0x1a0808); m.emissiveIntensity=0.5; }
+    else if(state==='off'){ m.emissive.set(0x000000); m.emissiveIntensity=0; m.color.setHex(0x25292f);}
+    else if(state==='warmup'){ m.emissive.set(0x1a0f00); m.emissiveIntensity=0.4; }
+    else { m.emissive.set(0x000000); m.emissiveIntensity=0; }
+  }
+  // Heater glow intensity
+  if(twta.heater_glow){
+    const m = twta.heater_glow[0].material;
+    if(state==='warmup'){ m.emissive.set(0xff7818); m.emissiveIntensity=3.0; }
+    else if(state==='active'){ m.emissive.set(0xff7818); m.emissiveIntensity=1.5; }
+    else { m.emissiveIntensity=0; }
+  }
+  // Helix tint during warmup
+  if(twta.helix){
+    const m = twta.helix[0].material;
+    if(state==='warmup'){ m.emissive.set(0x3a1a00); m.emissiveIntensity=0.6; }
+    else { m.emissiveIntensity=0; }
+  }
+}
+
+function applyWG(name, state){
+  const o = REG.wg_nominal[name];
+  if(!o || !WG[state]) return;
+  o.material = WG[state]();
+}
+
+function applyWGSet(names, state){
+  names.forEach(n => applyWG(n, state));
+}
+
+function setFailoverVisible(which, visible, state='new'){
+  const arr = which==='in' ? REG.wg_failover_in : REG.wg_failover_out;
+  arr.forEach(o => {
+    o.visible = visible;
+    if(visible && WG[state]) o.material = WG[state]();
+  });
+}
+
+function rotateRSW(side, idx, deg){
+  const rotor = REG.rsw_rotors[side][idx];
+  if(!rotor) return;
+  // Animate rotation over 2 seconds using GSAP-like tween
+  const startRot = rotor.rotation.z;
+  const endRot = deg * Math.PI / 180;
+  const dur = 2000;
+  const start = performance.now();
+  function step(){
+    const t = Math.min(1, (performance.now()-start)/dur);
+    // easeInOutCubic
+    const e = t<0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3)/2;
+    rotor.rotation.z = startRot + (endRot-startRot)*e;
+    if(t<1) requestAnimationFrame(step);
+  }
+  step();
+}
+
+function setBaselineState(){
+  for(let i=1;i<=6;i++){
+    applyStatus(i, i<=4 ? 'active' : 'standby');
+  }
+  // Nominal WG: hot on active path, cold on IMUX inputs
+  Object.keys(REG.wg_nominal).forEach(n=>{
+    if(n.match(/WG_IMUX/))            applyWG(n, 'cold');
+    else if(n.match(/WG_R\d+_OMUX/))  applyWG(n, 'hot');
+    else if(n.match(/_S[56]_TWTA[56]_in$|_TWTA[56]_out_R[56]$/)) applyWG(n, 'cold');
+    else                               applyWG(n, 'hot');
+  });
+  // Failover hidden
+  setFailoverVisible('in', false);
+  setFailoverVisible('out', false);
+  // Rotors at 0
+  [1,2,3,4,5,6].forEach(i=>{
+    if(REG.rsw_rotors.in[i]) REG.rsw_rotors.in[i].rotation.z = 0;
+    if(REG.rsw_rotors.out[i]) REG.rsw_rotors.out[i].rotation.z = 0;
+  });
+}
+
+/* ============================================================
+ * Timeline (matches simulator.html but calls 3D actions)
+ * ============================================================ */
+const timeline = [
+  {t:0.0, step:0, phase:"🟢 정상 운용", phaseClass:"", log:"note", msg:"시뮬레이션 시작 — 모든 중계기 정상 운용 중"},
+  {t:2.0, log:"tm", msg:"TM  TWTA01..04.STATUS = NOMINAL"},
+  {t:3.0, log:"tm", msg:"TM  TWTA05,06.STATUS = STANDBY (cathode heater OFF)"},
+
+  {t:4.0, step:1, phase:"🚨 TWTA-4 FAIL", phaseClass:"alert",
+    action:()=>{
+      applyStatus(4, 'fail');
+      applyWG('WG_S4_TWTA4_in', 'fail');
+      applyWG('WG_TWTA4_out_R4', 'fail');
+    },
+    log:"alarm", msg:"🚨 AUTO ALARM · TWTA04.EPC.OVER_CURRENT_TRIP"},
+  {t:4.5, log:"tm", msg:"TM  TWTA04.Ihc = 2.34 Inom → OVER_LIMIT"},
+  {t:5.5, log:"tm", msg:"TM  OMUX04.RF_power = NO_CARRIER · Downlink 상실"},
+  {t:7.0, log:"note", msg:"👨‍🚀 운용자: TM 스냅 · 절차서 FDP-TWTA-001 Open"},
+
+  {t:8.0, step:2, phase:"🔒 격리 단계", phaseClass:"warn",
+    log:"cmd", msg:"▶ TC  TWTA04.EPC.POWER_OFF"},
+  {t:8.5, action:()=>{
+      applyStatus(4, 'off');
+      // All related WG dead
+      ['WG_S4_TWTA4_in','WG_TWTA4_out_R4'].forEach(n=>applyWG(n,'dead'));
+      for(let k=1;k<=4;k++){
+        applyWG(`WG_IMUX4_Sin4_${k}`,'dead');
+        applyWG(`WG_R4_OMUX4_${k}`,'dead');
+      }
+    },
+    log:"tm", msg:"TM  TWTA04.EPC.POWER = OFF · ack"},
+  {t:10.0, log:"cmd", msg:"▶ TC  TWTA04.HEATER_OFF"},
+  {t:11.0, log:"tm", msg:"TM  TWTA04.HEATER.T ↘ · STATUS = OFF_SAFE"},
+
+  {t:12.0, step:3, phase:"🔥 TWTA-5 워밍업", phaseClass:"warn",
+    action:()=>applyStatus(5,'warmup'),
+    log:"cmd", msg:"▶ TC  TWTA05.EPC.POWER_ON · HEATER_ON"},
+  {t:14.0, log:"tm", msg:"TM  TWTA05.HEATER.T = 120°C (상승 중)"},
+  {t:16.5, log:"tm", msg:"TM  TWTA05.HEATER.T = 180°C · stable"},
+  {t:17.5, log:"cmd", msg:"▶ TC  TWTA05.Vk.RAMP = −7.5kV @ 500V/s"},
+  {t:19.0, log:"tm", msg:"TM  TWTA05.Vk = −4500V (ramping)"},
+  {t:20.5, log:"tm", msg:"TM  TWTA05.Vk = −7500V · Ihc = 1.00 Inom"},
+  {t:21.0, action:()=>applyStatus(5, 'active'),
+    log:"tm", msg:"TM  TWTA05.STATUS = READY ✓"},
+
+  {t:22.0, step:4, phase:"🔄 R-switch 절체", phaseClass:"warn",
+    log:"cmd", msg:"▶ TC  RSW_IN_S5.POS = POS_CH4"},
+  {t:22.3, action:()=>rotateRSW('in', 5, 90),
+    log:"tm", msg:"TM  RSW_IN_S5.MOTOR_I = 0.4A · 회전 진행"},
+  {t:24.5, action:()=>{
+      setFailoverVisible('in', true, 'new');
+      applyWG('WG_S5_TWTA5_in', 'new');
+    },
+    log:"tm", msg:"TM  RSW_IN_S5.ANGLE = 90° · POS=2 · LOCKED"},
+  {t:25.5, log:"cmd", msg:"▶ TC  RSW_OUT_R5.POS = POS_OMUX4"},
+  {t:26.0, action:()=>rotateRSW('out', 5, 90),
+    log:"tm", msg:"TM  RSW_OUT_R5.MOTOR_I = 0.4A · 회전 중"},
+  {t:28.0, action:()=>{
+      setFailoverVisible('out', true, 'new');
+      applyWG('WG_TWTA5_out_R5', 'new');
+    },
+    log:"tm", msg:"TM  RSW_OUT_R5.ANGLE = 90° · POS=2 · LOCKED"},
+
+  {t:30.0, step:5, phase:"✅ 복구 확인", phaseClass:"ok",
+    log:"cmd", msg:"▶ TC  OMUX04.LEVEL_CHECK"},
+  {t:30.5, log:"tm", msg:"TM  OMUX04.RF_power: -∞ → +50dBm (ramping)"},
+  {t:31.5, log:"tm", msg:"TM  OMUX04.RF_power = +52dBm NOMINAL"},
+  {t:33.0, action:()=>{
+      // Transition reroute path from cyan → hot orange (service delivered)
+      REG.wg_failover_in.forEach(o => o.material = WG.restored());
+      REG.wg_failover_out.forEach(o => o.material = WG.restored());
+      applyWG('WG_S5_TWTA5_in', 'restored');
+      applyWG('WG_TWTA5_out_R5', 'restored');
+    },
+    log:"tm", msg:"TM  Downlink_Ch4.EIRP = NOMINAL ✓"},
+  {t:34.0, log:"note", msg:"✅ 지상 수신국 확인 — Ch-4 정상 수신"},
+  {t:35.0, log:"cmd", msg:"▶ TC  EVENT_LOG.CLOSE Anomaly-2026-04-22-001"},
+  {t:37.0, step:6, phase:"🎉 절체 완료", phaseClass:"ok",
+    log:"note", msg:"복구 완료 · 잔여 예비: TWTA-6 (1기) · root cause 분석 진행"},
+];
+
+const steps = [
+  { time:"T+0:00", title:"정상 운용", desc:"모든 TWTA 모니터링" },
+  { time:"T+0:04", title:"고장 감지", desc:"TWTA-4 EPC over-current trip" },
+  { time:"T+0:08", title:"격리 (Isolate)", desc:"TWTA-4 완전 OFF" },
+  { time:"T+0:12", title:"예비 기동", desc:"TWTA-5 warmup + Vk ramp" },
+  { time:"T+0:22", title:"R-switch 절체", desc:"입·출력 스위치 회전" },
+  { time:"T+0:30", title:"서비스 복구", desc:"OMUX-4 출력 정상" },
+  { time:"T+0:37", title:"이벤트 종결", desc:"로그 저장" },
+];
+
+/* ============================================================
+ * Simulator engine
+ * ============================================================ */
+let t = 0, playing = false, speed = 1.0, eventIdx = 0, currentStep = 0, lastRaf = 0;
+const MAX_T = 38;
+const $ = id => document.getElementById(id);
+const logBody = $("logBody");
+
+function fmtTime(s){
+  const m = Math.floor(s/60);
+  const sec = (s - m*60).toFixed(1);
+  return `T+${m}:${sec.padStart(4,'0')}`;
+}
+function renderSteps(){
+  const list = $("stepList");
+  list.innerHTML = '';
+  steps.forEach((s,i)=>{
+    const cls = i<currentStep ? 'done' : i===currentStep ? 'active' : 'future';
+    const div = document.createElement('div');
+    div.className = `step ${cls}`;
+    div.innerHTML = `<span class="time">${s.time}</span><b>${s.title}</b><div style="font-size:11px;color:var(--sub);margin-top:2px">${s.desc}</div>`;
+    list.appendChild(div);
+  });
+}
+function addLog(type, msg){
+  const div = document.createElement('div');
+  div.className = `log-line ${type}`;
+  div.innerHTML = `<span class="ts">${fmtTime(t)}</span>${msg}`;
+  logBody.appendChild(div);
+  logBody.scrollTop = logBody.scrollHeight;
+}
+
+function processEventsUpTo(target){
+  while(eventIdx < timeline.length && timeline[eventIdx].t <= target){
+    const ev = timeline[eventIdx];
+    if(ev.phase){ $("phase").textContent = ev.phase; $("phase").className = 'phase ' + (ev.phaseClass||''); }
+    if(ev.step !== undefined){ currentStep = ev.step; renderSteps(); }
+    if(typeof ev.action === 'function') ev.action();
+    if(ev.log) addLog(ev.log, ev.msg);
+    eventIdx++;
+  }
+}
+
+function tick(now){
+  if(!lastRaf) lastRaf = now;
+  const dt = (now - lastRaf)/1000;
+  lastRaf = now;
+  if(playing){
+    t += dt * speed;
+    if(t >= MAX_T){ t = MAX_T; playing = false; $("play").textContent = "▶ 재시작"; }
+    $("clock").textContent = fmtTime(t);
+    processEventsUpTo(t);
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+function reset(){
+  t = 0; eventIdx = 0; currentStep = 0; playing = false; lastRaf = 0;
+  $("clock").textContent = fmtTime(0);
+  $("phase").textContent = "🟢 정상 운용"; $("phase").className = "phase";
+  $("play").textContent = "▶ 시작";
+  logBody.innerHTML = '';
+  setBaselineState();
+  renderSteps();
+}
+
+$("play").onclick = () => {
+  if(t >= MAX_T) reset();
+  playing = !playing;
+  $("play").textContent = playing ? "⏸ 일시정지" : "▶ 시작";
+};
+$("step").onclick = () => {
+  playing = false; $("play").textContent = "▶ 시작";
+  if(eventIdx < timeline.length){
+    t = timeline[eventIdx].t;
+    $("clock").textContent = fmtTime(t);
+    processEventsUpTo(t);
+  }
+};
+$("reset").onclick = reset;
+$("rewind").onclick = () => { t = Math.max(0, t-5); $("clock").textContent = fmtTime(t); };
+$("speed").onchange = e => { speed = parseFloat(e.target.value); };
+
+document.addEventListener('keydown', e => {
+  if(e.key === ' '){ e.preventDefault(); $("play").click(); }
+  if(e.key === 'ArrowRight'){ $("step").click(); }
+  if(e.key === 'ArrowLeft'){ $("rewind").click(); }
+});
+
+document.querySelectorAll('.log-tabs button').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.log-tabs button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.tab;
+    document.querySelectorAll('.log-line').forEach(l => {
+      l.style.display = (tab==='all' || l.classList.contains(tab)) ? '' : 'none';
+    });
+  };
+});
+
+renderSteps();
+
+/* ============================================================
+ * Future DSS hookup (placeholder)
+ * ============================================================
+ * Later, replace the timeline-driven loop with a WebSocket feed from DSS:
+ *
+ * const ws = new WebSocket('wss://dss.example/tm');
+ * ws.onmessage = ev => {
+ *   const tm = JSON.parse(ev.data);
+ *   // tm = { id: "TWTA04.STATUS", value: "FAIL" }
+ *   const match = tm.id.match(/^TWTA(\d+)\.(.*)$/);
+ *   if(match){
+ *     const idx = parseInt(match[1]);
+ *     if(match[2]==='STATUS'){
+ *       const v = tm.value.toLowerCase();
+ *       applyStatus(idx, v);
+ *     }
+ *   }
+ *   const rswMatch = tm.id.match(/^RSW_(IN|OUT)_[SR](\d+)\.POS$/);
+ *   if(rswMatch){
+ *     const side = rswMatch[1].toLowerCase();
+ *     const idx = parseInt(rswMatch[2]);
+ *     rotateRSW(side, idx, tm.value === 2 ? 90 : 0);
+ *   }
+ *   addLog('tm', tm.id + ' = ' + tm.value);
+ * };
+ */
+</script>
+</body>
+</html>
