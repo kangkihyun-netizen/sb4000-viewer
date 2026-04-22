@@ -142,12 +142,12 @@ main{flex:1;display:grid;grid-template-columns:240px 1fr 320px;gap:12px;padding:
       🖱️ 드래그=회전 · 휠=확대 · 우클릭드래그=팬
     </div>
     <div class="legend-3d">
-      <div style="font-weight:700;color:var(--gold);margin-bottom:3px">부품 상태</div>
-      <div><i style="background:#4ddb88;color:#4ddb88"></i>ACTIVE</div>
-      <div><i style="background:#ff4d5e;color:#ff4d5e"></i>FAIL</div>
-      <div><i style="background:#ffb23a;color:#ffb23a"></i>HOT RF / WARMUP</div>
-      <div><i style="background:#f5d94a;color:#f5d94a"></i>STANDBY</div>
-      <div><i style="background:#555;color:#777"></i>OFF / DEAD</div>
+      <div style="font-weight:700;color:var(--gold);margin-bottom:3px">TWTA 상태 (몸체 할로)</div>
+      <div><i style="background:#4ddb88;color:#4ddb88"></i>ACTIVE (정상 운용)</div>
+      <div><i style="background:#ff4d5e;color:#ff4d5e"></i>FAIL (고장, 빨간 펄스)</div>
+      <div><i style="background:#ff8a1e;color:#ff8a1e"></i>WARMUP (예비 기동 중)</div>
+      <div><i style="background:#f5d94a;color:#f5d94a"></i>STANDBY (예비 대기)</div>
+      <div><i style="background:#555;color:#777"></i>OFF</div>
       <div style="font-weight:700;color:var(--gold);margin:6px 0 3px">RF 신호 흐름 ▸</div>
       <div><span style="color:#ff9820;font-weight:700;margin-right:5px">▸▸▸</span>정상 (IMUX→OMUX)</div>
       <div><span style="color:#ff2a38;font-weight:700;margin-right:5px">▸▸▸</span>고장 채널</div>
@@ -194,11 +194,13 @@ renderer.toneMappingExposure = 1.1;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x060a15);
 
-const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
-camera.position.set(2.8, 1.2, 2.2);
+const camera = new THREE.PerspectiveCamera(38, 1, 0.01, 100);
+// Position camera to frame the whole TWTA row (6 units spanning z=-0.9 to +0.9)
+camera.position.set(3.2, 0.9, 1.8);
 
 const controls = new OrbitControls(camera, canvas);
-controls.target.set(1.0, 0.1, 0.15);
+// Target center of TWTA row (world x=1.2, y=0.1, z≈0)
+controls.target.set(1.2, 0.1, 0.0);
 controls.enableDamping = true;
 controls.dampingFactor = 0.1;
 controls.minDistance = 0.5;
@@ -350,6 +352,9 @@ loader.load('twta_bay.glb',
     console.log('RSW rotors:', Object.keys(REG.rsw_rotors.in), Object.keys(REG.rsw_rotors.out));
 
     setBaselineState();
+
+    // TWTA auras + labels (prominent state indicator)
+    initTwtaAuras();
 
     // Build signal flow overlays after GLB is loaded
     initAllFlows();
@@ -686,6 +691,7 @@ function animate(now){
   lastTick = now;
   controls.update();
   updateFlows(dt);
+  updateAuras(now);
   renderer.render(scene, camera);
 }
 requestAnimationFrame(animate);
@@ -694,15 +700,122 @@ requestAnimationFrame(animate);
  * State mutators — replace materials on registered objects
  * These are the "applyAction" calls invoked by the timeline
  * ============================================================ */
+// TWTA aura (prominent state indicator): box-shaped glow around the whole TWTA
+const TWTA_AURAS = {};
+const TWTA_LABELS = {};
+
+function makeTextSprite(text, color){
+  const c = document.createElement('canvas'); c.width=256; c.height=80;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = 'rgba(6,12,24,0.85)';
+  ctx.fillRect(0,0,256,80);
+  ctx.strokeStyle = '#'+color.toString(16).padStart(6,'0');
+  ctx.lineWidth = 4;
+  ctx.strokeRect(4,4,248,72);
+  ctx.fillStyle = '#'+color.toString(16).padStart(6,'0');
+  ctx.font = 'bold 30px sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(text, 128, 40);
+  const tex = new THREE.CanvasTexture(c); tex.needsUpdate=true;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent:true, depthTest:false });
+  const s = new THREE.Sprite(mat); s.renderOrder = 3;
+  s.scale.set(0.32, 0.10, 1);
+  return s;
+}
+
+function updateLabelText(sprite, text, color){
+  const c = document.createElement('canvas'); c.width=256; c.height=80;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = 'rgba(6,12,24,0.85)';
+  ctx.fillRect(0,0,256,80);
+  ctx.strokeStyle = '#'+color.toString(16).padStart(6,'0');
+  ctx.lineWidth = 4;
+  ctx.strokeRect(4,4,248,72);
+  ctx.fillStyle = '#'+color.toString(16).padStart(6,'0');
+  ctx.font = 'bold 30px sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(text, 128, 40);
+  const tex = new THREE.CanvasTexture(c); tex.needsUpdate=true;
+  sprite.material.map = tex;
+  sprite.material.needsUpdate = true;
+}
+
+function createTwtaAura(idx){
+  // Box-shape glow wrapping the TWTA body
+  const slot_y = [-0.90,-0.54,-0.18,0.18,0.54,0.90];
+  const worldY = 0.095;  // glTF up axis
+  const worldZ = -slot_y[idx-1];
+  const auraGeom = new THREE.BoxGeometry(0.55, 0.25, 0.25);
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0x4ddb88,
+    transparent:true, opacity:0.15,
+    depthTest:false
+  });
+  const aura = new THREE.Mesh(auraGeom, mat);
+  aura.position.set(1.20, worldY, worldZ);
+  aura.renderOrder = 0;   // behind arrows
+  scene.add(aura);
+
+  // Label floating above
+  const label = makeTextSprite(`TWTA-${idx} ACTIVE`, 0x4ddb88);
+  label.position.set(1.20, worldY + 0.25, worldZ);
+  scene.add(label);
+
+  TWTA_AURAS[idx] = aura;
+  TWTA_LABELS[idx] = label;
+}
+
+function initTwtaAuras(){
+  for(let i=1;i<=6;i++) createTwtaAura(i);
+  // Initial: 1-4 ACTIVE green, 5-6 STANDBY amber
+  for(let i=1;i<=4;i++) setTwtaAuraState(i, 'active');
+  setTwtaAuraState(5, 'standby');
+  setTwtaAuraState(6, 'standby');
+}
+
+function setTwtaAuraState(idx, state){
+  const aura = TWTA_AURAS[idx];
+  const label = TWTA_LABELS[idx];
+  if(!aura || !label) return;
+
+  const styles = {
+    active:  { color: 0x4ddb88, opacity: 0.18, text: `TWTA-${idx} ACTIVE` },
+    fail:    { color: 0xff2a38, opacity: 0.55, text: `TWTA-${idx} ⚠ FAIL` },
+    off:     { color: 0x606880, opacity: 0.08, text: `TWTA-${idx} OFF` },
+    standby: { color: 0xf5c63e, opacity: 0.12, text: `TWTA-${idx} STANDBY` },
+    warmup:  { color: 0xff8a1e, opacity: 0.40, text: `TWTA-${idx} WARMUP` },
+    spare_ready: { color: 0x4ddb88, opacity: 0.35, text: `TWTA-${idx} SPARE→ACTIVE ✓` },
+  };
+  const s = styles[state] || styles.active;
+  aura.material.color.setHex(s.color);
+  aura.material.opacity = s.opacity;
+  updateLabelText(label, s.text, s.color);
+  aura.userData.state = state;
+  aura.userData.pulseStart = performance.now();
+}
+
+// Pulse intensity animation for fail/warmup states
+function updateAuras(t){
+  Object.entries(TWTA_AURAS).forEach(([idx, aura])=>{
+    const state = aura.userData.state;
+    if(state === 'fail'){
+      // red alarm pulse
+      const pulse = 0.5 + 0.4 * Math.sin(t * 0.006);
+      aura.material.opacity = pulse;
+    } else if(state === 'warmup'){
+      const pulse = 0.25 + 0.25 * Math.sin(t * 0.004);
+      aura.material.opacity = pulse;
+    }
+  });
+}
+
 function applyStatus(idx, state){
   const twta = REG.twta[idx];
   if(!twta) return;
-  // LED is the primary status indicator
   if(twta.led){
     const m = STATUS[state] ? STATUS[state]() : STATUS.off();
     twta.led.forEach(o => o.material = m);
   }
-  // Also tint the EPC slightly
   if(twta.epc){
     const m = twta.epc[0].material;
     if(state==='fail'){ m.emissive.set(0x1a0808); m.emissiveIntensity=0.5; }
@@ -710,19 +823,19 @@ function applyStatus(idx, state){
     else if(state==='warmup'){ m.emissive.set(0x1a0f00); m.emissiveIntensity=0.4; }
     else { m.emissive.set(0x000000); m.emissiveIntensity=0; }
   }
-  // Heater glow intensity
   if(twta.heater_glow){
     const m = twta.heater_glow[0].material;
     if(state==='warmup'){ m.emissive.set(0xff7818); m.emissiveIntensity=3.0; }
     else if(state==='active'){ m.emissive.set(0xff7818); m.emissiveIntensity=1.5; }
     else { m.emissiveIntensity=0; }
   }
-  // Helix tint during warmup
   if(twta.helix){
     const m = twta.helix[0].material;
     if(state==='warmup'){ m.emissive.set(0x3a1a00); m.emissiveIntensity=0.6; }
     else { m.emissiveIntensity=0; }
   }
+  // Update the prominent aura + label
+  setTwtaAuraState(idx, state);
 }
 
 function applyWG(name, state){
@@ -826,8 +939,11 @@ const timeline = [
   {t:17.5, log:"cmd", msg:"▶ TC  TWTA05.Vk.RAMP = −7.5kV @ 500V/s"},
   {t:19.0, log:"tm", msg:"TM  TWTA05.Vk = −4500V (ramping)"},
   {t:20.5, log:"tm", msg:"TM  TWTA05.Vk = −7500V · Ihc = 1.00 Inom"},
-  {t:21.0, action:()=>applyStatus(5, 'active'),
-    log:"tm", msg:"TM  TWTA05.STATUS = READY ✓"},
+  {t:21.0, action:()=>{
+      applyStatus(5, 'active');
+      setTwtaAuraState(5, 'spare_ready');   // bold green glow: spare now ready to take over
+    },
+    log:"tm", msg:"TM  TWTA05.STATUS = READY ✓ (spare ready)"},
 
   {t:22.0, step:4, phase:"🔄 R-switch 절체", phaseClass:"warn",
     log:"cmd", msg:"▶ TC  RSW_IN_S5.POS = POS_CH4"},
