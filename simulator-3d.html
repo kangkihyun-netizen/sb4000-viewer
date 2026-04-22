@@ -428,39 +428,31 @@ class LinearPath {
   }
 }
 
+// ===== HARDCODED positions based on Blender scene + glTF yup conversion =====
+// Blender: IMUX z=-0.30, OMUX z=+0.50, imux_ch_y = omux_ch_y = [-0.72,-0.24,0.24,0.72]
+// glTF yup: (x, y_bl, z_bl) → (x, z_bl, -y_bl)
+// So IMUX ch-i glTF: (1.05, -0.22, -ch_y[i-1])
+//    OMUX ch-i glTF: (1.05, +0.42, -ch_y[i-1])
+const CH_Y = [-0.72, -0.24, 0.24, 0.72];   // Blender Y of each channel on bank
+const IMUX_Z_GL = -0.22;   // glTF Y (vertical) at IMUX top
+const OMUX_Z_GL =  0.42;   // glTF Y (vertical) at OMUX bottom
+const BANK_X = 1.05;
+
+function imuxPortPos(ch){
+  // ch 1..4 → one of 4 channels along bank
+  return new THREE.Vector3(BANK_X, IMUX_Z_GL, -CH_Y[ch-1]);
+}
+function omuxPortPos(ch){
+  return new THREE.Vector3(BANK_X, OMUX_Z_GL, -CH_Y[ch-1]);
+}
+
 function buildChannelPath(ch, route){
-  // route = 'nominal' | 'failover' (for ch==4)
-  const via = route==='failover' ? 5 : ch;
-  const twta = REG.twta[via];
-  if(!twta || !twta.helix){ console.warn('No TWTA helix for ch', ch, route); return null; }
-
-  // Anchor positions: use TWTA helix center as the "through" point
-  const helixPos = wp(twta.helix[0]);
-
-  // For IMUX/OMUX ports, use WG segment centers (mid of first/last WG segment).
-  // If channel 4 failover, use IMUX ch-4 port and OMUX ch-4 port (same physical ports).
-  const firstWg = REG.wg_nominal[`WG_IMUX${ch}_Sin${ch}_1`];
-  const lastWg  = REG.wg_nominal[`WG_R${ch}_OMUX${ch}_2`];
-  const imuxCenter = REG.imux_bank ? wp(REG.imux_bank) : new THREE.Vector3();
-  const omuxCenter = REG.omux_bank ? wp(REG.omux_bank) : new THREE.Vector3();
-
-  const imuxPort = firstWg ? wp(firstWg) : imuxCenter.clone();
-  const omuxPort = lastWg  ? wp(lastWg)  : omuxCenter.clone();
-
-  // Bias endpoints slightly outward from the bank center so arrows start "above"
-  // the IMUX bar and end "above" the OMUX bar, making the flow obvious.
-  const upAxis = new THREE.Vector3(0, 1, 0);
-  const imuxToHelix = new THREE.Vector3().subVectors(helixPos, imuxCenter).normalize();
-  const omuxToHelix = new THREE.Vector3().subVectors(helixPos, omuxCenter).normalize();
-
-  // Straight path: just IMUX port → OMUX port (2 waypoints, strictly monotonic)
-  const a = imuxPort.clone();
-  const b = omuxPort.clone();
-
-  console.log(`ch${ch} ${route}: IMUX`, a.toArray().map(v=>v.toFixed(2)),
-              '→ OMUX', b.toArray().map(v=>v.toFixed(2)),
-              'len=', a.distanceTo(b).toFixed(2));
-
+  // Straight line from IMUX port to OMUX port.
+  // For failover (ch==4 rerouted), the physical ports are the SAME (IMUX ch-4 and OMUX ch-4)
+  // so the arrow path doesn't change — only the color does.
+  const a = imuxPortPos(ch);
+  const b = omuxPortPos(ch);
+  console.log(`ch${ch} ${route}: IMUX (${a.x.toFixed(2)},${a.y.toFixed(2)},${a.z.toFixed(2)}) → OMUX (${b.x.toFixed(2)},${b.y.toFixed(2)},${b.z.toFixed(2)}) len=${a.distanceTo(b).toFixed(2)}`);
   return new LinearPath([a, b]);
 }
 
@@ -469,29 +461,46 @@ const ARROW_GEOM = new THREE.ConeGeometry(0.045, 0.18, 14);
 ARROW_GEOM.rotateX(Math.PI/2);    // apex now along +Z (flow direction)
 ARROW_GEOM.translate(0, 0, 0.06); // bias so arrow sits centered on path point
 
-// Static line showing the full path (bright glowing guide)
+// Static glowing tube showing the full path (thick, always visible)
 function createPathLine(path, color){
-  const pts = path.points.map(p => p.clone());
-  const geom = new THREE.BufferGeometry().setFromPoints(pts);
-  const mat = new THREE.LineBasicMaterial({
+  const curve = new THREE.CatmullRomCurve3(path.points.map(p=>p.clone()), false, 'centripetal', 0);
+  const geom = new THREE.TubeGeometry(curve, 24, 0.012, 8, false);
+  const mat = new THREE.MeshBasicMaterial({
     color: color,
-    transparent: true, opacity: 0.7,
-    depthTest: false   // always render on top so it's visible through objects
+    transparent: true, opacity: 0.5,
+    depthTest: false
   });
-  const line = new THREE.Line(geom, mat);
-  line.renderOrder = 1;
-  return line;
+  const tube = new THREE.Mesh(geom, mat);
+  tube.renderOrder = 1;
+  return tube;
+}
+
+// Debug endpoints — small bright spheres at IMUX and OMUX ports
+function createEndpointMarkers(path, color){
+  const group = new THREE.Group();
+  const sphGeom = new THREE.SphereGeometry(0.035, 12, 12);
+  [path.points[0], path.points[path.points.length-1]].forEach((p, i)=>{
+    const mat = new THREE.MeshBasicMaterial({
+      color: i===0 ? 0xc59bff : 0xffb23a,   // purple=IMUX, gold=OMUX
+      transparent:true, opacity:0.95,
+      depthTest:false
+    });
+    const s = new THREE.Mesh(sphGeom, mat);
+    s.position.copy(p);
+    s.renderOrder = 1;
+    group.add(s);
+  });
+  return group;
 }
 
 function createFlowParticles(ch, color, path, count=6){
   const group = new THREE.Group();
   const particles = [];
   for(let i=0;i<count;i++){
-    // Use BasicMaterial (unlit) so arrows glow full-brightly regardless of scene lighting
     const mat = new THREE.MeshBasicMaterial({
       color: color,
       transparent: true, opacity: 1.0,
-      depthTest: false  // render on top
+      depthTest: false
     });
     const s = new THREE.Mesh(ARROW_GEOM, mat);
     s.userData.t = i/count;
@@ -499,8 +508,12 @@ function createFlowParticles(ch, color, path, count=6){
     group.add(s);
     particles.push(s);
   }
+  // Static tube showing the path
   const line = createPathLine(path, color);
   group.add(line);
+  // Endpoint markers (purple IMUX / gold OMUX)
+  const markers = createEndpointMarkers(path, color);
+  group.add(markers);
   FLOW.group.add(group);
   return {group, particles, line};
 }
